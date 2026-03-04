@@ -1,4 +1,4 @@
-"""Custom widgets for slurp."""
+"""Custom widgets for mruls."""
 
 from __future__ import annotations
 

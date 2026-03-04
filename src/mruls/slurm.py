@@ -136,6 +136,60 @@ async def get_job_info(job_id: str) -> Optional[str]:
     return None
 
 
+async def get_job_output_paths(job_id: str) -> tuple[Optional[str], Optional[str]]:
+    """Get stdout and stderr file paths for a job.
+
+    Args:
+        job_id: The job ID to query.
+
+    Returns:
+        Tuple of (stdout_path, stderr_path), either can be None.
+    """
+    info = await get_job_info(job_id)
+    if not info:
+        return None, None
+
+    stdout_path = None
+    stderr_path = None
+
+    for part in info.split():
+        if part.startswith("StdOut="):
+            stdout_path = part.split("=", 1)[1]
+        elif part.startswith("StdErr="):
+            stderr_path = part.split("=", 1)[1]
+
+    return stdout_path, stderr_path
+
+
+async def read_output_file(
+    file_path: str, tail_lines: Optional[int] = None
+) -> tuple[bool, str]:
+    """Read contents of an output file.
+
+    Args:
+        file_path: Path to the output file.
+        tail_lines: If specified, only return the last N lines.
+
+    Returns:
+        Tuple of (success, content_or_error).
+    """
+    try:
+        with open(file_path, "r") as f:
+            content = f.read()
+
+        if tail_lines is not None:
+            lines = content.splitlines()
+            content = "\n".join(lines[-tail_lines:])
+
+        return True, content
+    except FileNotFoundError:
+        return False, f"File not found: {file_path}"
+    except PermissionError:
+        return False, f"Permission denied: {file_path}"
+    except Exception as e:
+        return False, f"Error reading file: {e}"
+
+
 async def hold_job(job_id: str) -> tuple[bool, str]:
     """Hold a pending job.
 

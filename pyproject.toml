@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "slurp"
+name = "mruls"
 version = "0.1.0"
 description = "A minimal TUI for managing Slurm jobs"
 readme = "README.md"
@@ -11,7 +11,7 @@ requires-python = ">=3.8"
 license = "MIT"
 keywords = ["slurm", "hpc", "tui", "cluster"]
 authors = [
-    { name = "Dheeraj" },
+    { name = "Dheeraj Vittal Shenoy" },
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -33,11 +33,11 @@ dependencies = [
 ]
 
 [project.scripts]
-slurp = "slurp.__main__:main"
+mruls = "mruls.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/dheeraj/slurp"
-Repository = "https://github.com/dheeraj/slurp"
+Homepage = "https://github.com/dheeraj/mruls"
+Repository = "https://github.com/dheeraj/mruls"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/slurp"]
+packages = ["src/mruls"]
