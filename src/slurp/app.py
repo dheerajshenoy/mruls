@@ -6,9 +6,64 @@ import os
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import DataTable, Footer, Header
+from textual.containers import Grid
+from textual.screen import ModalScreen
+from textual.widgets import Button, DataTable, Footer, Header, Label
 
 from slurp.slurm import Job, cancel_job, get_jobs
+
+
+class ConfirmCancelDialog(ModalScreen[bool]):
+    """A modal dialog to confirm job cancellation."""
+
+    CSS = """
+    ConfirmCancelDialog {
+        align: center middle;
+    }
+
+    ConfirmCancelDialog > Grid {
+        grid-size: 2;
+        grid-gutter: 1 2;
+        grid-rows: auto auto;
+        padding: 1 2;
+        width: 50;
+        height: auto;
+        border: thick $primary;
+        background: $surface;
+    }
+
+    ConfirmCancelDialog > Grid > Label {
+        column-span: 2;
+        content-align: center middle;
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    ConfirmCancelDialog > Grid > Button {
+        width: 100%;
+    }
+    """
+
+    def __init__(self, job_id: str, job_name: str = "") -> None:
+        """Initialize the dialog with job details."""
+        super().__init__()
+        self.job_id = job_id
+        self.job_name = job_name
+
+    def compose(self) -> ComposeResult:
+        """Compose the dialog UI."""
+        job_desc = f"{self.job_id}"
+        if self.job_name:
+            job_desc = f"{self.job_id} ({self.job_name})"
+        yield Grid(
+            Label(f"Cancel job {job_desc}?"),
+            Button("Yes", variant="error", id="confirm"),
+            Button("No", variant="primary", id="cancel"),
+        )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses."""
+        self.dismiss(event.button.id == "confirm")
 
 
 class SlurpApp(App):
@@ -116,7 +171,7 @@ class SlurpApp(App):
         self.sub_title = f"[{filter_status}] {len(self.jobs)} jobs"
 
     async def action_cancel_job(self) -> None:
-        """Cancel the selected job."""
+        """Cancel the selected job after confirmation."""
         table = self.query_one(DataTable)
 
         if table.cursor_row is None:
@@ -126,14 +181,19 @@ class SlurpApp(App):
         if not row_key:
             return
 
-        # Get job_id from the first column
+        # Get job_id and job_name from the row
         job_id = str(row_key[0])
+        job_name = str(row_key[1]) if len(row_key) > 1 else ""
 
-        success, message = await cancel_job(job_id)
-        self.notify(message, severity="information" if success else "error")
+        # Show confirmation dialog
+        confirmed = await self.push_screen_wait(ConfirmCancelDialog(job_id, job_name))
 
-        if success:
-            await self.action_refresh()
+        if confirmed:
+            success, message = await cancel_job(job_id)
+            self.notify(message, severity="information" if success else "error")
+
+            if success:
+                await self.action_refresh()
 
     def action_toggle_all_users(self) -> None:
         """Toggle between showing all users and current user only."""
