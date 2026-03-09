@@ -1,0 +1,4 @@
+refresh_interval = 5
+output_display_mode = "full"
+show_all_users = false
+tail_lines = 200
