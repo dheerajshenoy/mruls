@@ -1,16 +1,16 @@
 """Main Textual application for mruls."""
 
 from __future__ import annotations
-
 import os
 from enum import Enum
 from typing import Optional
-
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Grid, Horizontal, Vertical
-from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Footer, Header, Label, Static
+from textual.containers import Horizontal, Vertical
+from textual.widgets import DataTable, Footer, Header, Static
+from mruls.ConfirmCancelDialog import ConfirmCancelDialog
+from mruls.OutputViewerModal import OutputViewerModal
+from mruls.Config import Config, Path
 
 from mruls.slurm import (
     Job,
@@ -19,146 +19,6 @@ from mruls.slurm import (
     get_jobs,
     read_output_file,
 )
-
-
-class ConfirmCancelDialog(ModalScreen[bool]):
-    """A modal dialog to confirm job cancellation."""
-
-    CSS = """
-    ConfirmCancelDialog {
-        align: center middle;
-    }
-
-    ConfirmCancelDialog > Grid {
-        grid-size: 2;
-        grid-gutter: 1 2;
-        grid-rows: auto auto;
-        padding: 1 2;
-        width: 50;
-        height: auto;
-        border: thick $primary;
-        background: $surface;
-    }
-
-    ConfirmCancelDialog > Grid > Label {
-        column-span: 2;
-        content-align: center middle;
-        width: 100%;
-        margin-bottom: 1;
-    }
-
-    ConfirmCancelDialog > Grid > Button {
-        width: 100%;
-    }
-    """
-
-    def __init__(self, job_id: str, job_name: str = "") -> None:
-        """Initialize the dialog with job details."""
-        super().__init__()
-        self.job_id = job_id
-        self.job_name = job_name
-
-    def compose(self) -> ComposeResult:
-        """Compose the dialog UI."""
-        job_desc = f"{self.job_id}"
-        if self.job_name:
-            job_desc = f"{self.job_id} ({self.job_name})"
-        yield Grid(
-            Label(f"Cancel job {job_desc}?"),
-            Button("Yes", variant="error", id="confirm"),
-            Button("No", variant="primary", id="cancel"),
-        )
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
-        self.dismiss(event.button.id == "confirm")
-
-
-class OutputViewerModal(ModalScreen[None]):
-    """A modal screen for viewing job output."""
-
-    BINDINGS = [
-        Binding("escape", "dismiss", "Close"),
-        Binding("o", "dismiss", "Close"),
-        Binding("tab", "toggle_output", "Toggle stdout/stderr"),
-    ]
-
-    CSS = """
-    OutputViewerModal {
-        align: center middle;
-    }
-
-    OutputViewerModal > Vertical {
-        width: 90%;
-        height: 90%;
-        border: thick $primary;
-        background: $surface;
-    }
-
-    OutputViewerModal .output-header {
-        dock: top;
-        height: 3;
-        padding: 1;
-        background: $primary;
-        text-style: bold;
-    }
-
-    OutputViewerModal .output-content {
-        height: 1fr;
-        padding: 1;
-        overflow-y: auto;
-    }
-
-    OutputViewerModal .output-footer {
-        dock: bottom;
-        height: 1;
-        padding: 0 1;
-        background: $surface-darken-1;
-    }
-    """
-
-    def __init__(
-        self,
-        job_id: str,
-        job_name: str,
-        stdout_content: str,
-        stderr_content: str,
-        show_stderr: bool = False,
-    ) -> None:
-        """Initialize the output viewer."""
-        super().__init__()
-        self.job_id = job_id
-        self.job_name = job_name
-        self.stdout_content = stdout_content
-        self.stderr_content = stderr_content
-        self.showing_stderr = show_stderr
-
-    def compose(self) -> ComposeResult:
-        """Compose the viewer UI."""
-        output_type = "stderr" if self.showing_stderr else "stdout"
-        content = self.stderr_content if self.showing_stderr else self.stdout_content
-        yield Vertical(
-            Static(
-                f"Job {self.job_id} ({self.job_name}) - {output_type}",
-                classes="output-header",
-            ),
-            Static(content, classes="output-content"),
-            Static(
-                "[Tab] Toggle stdout/stderr | [Esc/o] Close", classes="output-footer"
-            ),
-        )
-
-    def action_toggle_output(self) -> None:
-        """Toggle between stdout and stderr."""
-        self.showing_stderr = not self.showing_stderr
-        output_type = "stderr" if self.showing_stderr else "stdout"
-        content = self.stderr_content if self.showing_stderr else self.stdout_content
-
-        header = self.query_one(".output-header", Static)
-        header.update(f"Job {self.job_id} ({self.job_name}) - {output_type}")
-
-        content_widget = self.query_one(".output-content", Static)
-        content_widget.update(content)
 
 
 class OutputView(Enum):
@@ -228,63 +88,8 @@ class MrulsApp(App):
     """A minimal TUI for managing Slurm jobs."""
 
     TITLE = "mruls"
-    CSS = """
-    #main-container {
-        height: 1fr;
-    }
-
-    #main-container.horizontal {
-        layout: horizontal;
-    }
-
-    #main-container.vertical {
-        layout: vertical;
-    }
-
-    #table-container {
-        height: 1fr;
-        width: 1fr;
-    }
-
-    DataTable {
-        height: 1fr;
-    }
-
-    DataTable > .datatable--cursor {
-        background: $accent;
-    }
-
-    .job-running {
-        color: $success;
-    }
-
-    .job-pending {
-        color: $warning;
-    }
-
-    .job-failed {
-        color: $error;
-    }
-
-    #output-panel {
-        display: none;
-    }
-
-    #output-panel.visible {
-        display: block;
-    }
-
-    #output-panel.bottom {
-        height: 15;
-        width: 100%;
-        dock: bottom;
-    }
-
-    #output-panel.side {
-        width: 50%;
-        height: 100%;
-    }
-    """
+    with open(os.path.join(os.path.dirname(__file__), "css", "app.css")) as f:
+        CSS = f.read()
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -296,20 +101,24 @@ class MrulsApp(App):
         Binding("d", "cycle_display_mode", "Display"),
     ]
 
-    def __init__(self, output_display_mode: str = "bottom") -> None:
+    def __init__(self, config_path: Path | None = None) -> None:
         """Initialize the app.
 
         Args:
-            output_display_mode: Display mode for output panel.
-                                 One of 'bottom', 'side', or 'modal'.
+            config_path: Optional path to a config file. If None, the default path will be used.
         """
         super().__init__()
-        self.show_all_users = False
+
+        # Config
+        self._config = Config.load(config_path or Config.DEFAULT_CONFIG_PATH)
+
         self.current_user = os.environ.get("USER", "")
+
+        # States
+        self.show_all_users = False
         self.jobs: list[Job] = []
-        # Output viewer state
         self.output_view = OutputView.HIDDEN
-        self.output_display_mode = OutputDisplayMode(output_display_mode)
+        self.output_display_mode = OutputDisplayMode(OutputDisplayMode.SIDE)
         self.current_stdout: str = ""
         self.current_stderr: str = ""
         self.current_output_job_id: Optional[str] = None
@@ -344,6 +153,9 @@ class MrulsApp(App):
 
         # Load initial data
         await self.action_refresh()
+
+        # Auto-refresh every 5 seconds
+        self.set_interval(self._config.refresh_interval, self.action_refresh)
 
     async def action_refresh(self) -> None:
         """Refresh the job list."""
