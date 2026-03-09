@@ -1,7 +1,7 @@
 from textual.screen import ModalScreen
 from textual.binding import Binding
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Vertical, ScrollableContainer
 from textual.widgets import Static
 
 class OutputViewerModal(ModalScreen[None]):
@@ -34,9 +34,7 @@ class OutputViewerModal(ModalScreen[None]):
     }
 
     OutputViewerModal .output-content {
-        height: 1fr;
         padding: 1;
-        overflow-y: auto;
     }
 
     OutputViewerModal .output-footer {
@@ -63,8 +61,8 @@ class OutputViewerModal(ModalScreen[None]):
         self.stderr_content = stderr_content
         self.showing_stderr = show_stderr
 
+
     def compose(self) -> ComposeResult:
-        """Compose the viewer UI."""
         output_type = "stderr" if self.showing_stderr else "stdout"
         content = self.stderr_content if self.showing_stderr else self.stdout_content
         yield Vertical(
@@ -72,21 +70,24 @@ class OutputViewerModal(ModalScreen[None]):
                 f"Job {self.job_id} ({self.job_name}) - {output_type}",
                 classes="output-header",
             ),
-            Static(content, classes="output-content"),
+            ScrollableContainer(
+                Static(content, classes="output-content"),
+                id="scroll-container",
+            ),
             Static(
                 "[Tab] Toggle stdout/stderr | [Esc/o] Close", classes="output-footer"
             ),
         )
 
     def action_toggle_output(self) -> None:
-        """Toggle between stdout and stderr."""
         self.showing_stderr = not self.showing_stderr
         output_type = "stderr" if self.showing_stderr else "stdout"
         content = self.stderr_content if self.showing_stderr else self.stdout_content
 
-        header = self.query_one(".output-header", Static)
-        header.update(f"Job {self.job_id} ({self.job_name}) - {output_type}")
+        self.query_one(".output-header", Static).update(
+            f"Job {self.job_id} ({self.job_name}) - {output_type}"
+        )
+        self.query_one(".output-content", Static).update(content)
 
-        content_widget = self.query_one(".output-content", Static)
-        content_widget.update(content)
-
+        # Scroll back to top when switching
+        self.query_one("#scroll-container", ScrollableContainer).scroll_home(animate=False)
