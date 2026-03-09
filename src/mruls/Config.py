@@ -8,7 +8,7 @@ DEFAULT_CONFIG_PATH = Path.home() / ".config" / "mruls" / "config.toml"
 
 @dataclass
 class Config:
-    refresh_interval: int = 30
+    refresh_interval: int = 5
     output_display_mode: str = "bottom"
     show_all_users: bool = False
     tail_lines: int = 500
