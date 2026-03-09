@@ -1,8 +1,10 @@
 from textual.screen import ModalScreen
 from textual.binding import Binding
 from textual.app import ComposeResult
-from textual.containers import Vertical, ScrollableContainer
+from textual.containers import Vertical
 from textual.widgets import Static
+from textual.widgets import RichLog
+
 
 class OutputViewerModal(ModalScreen[None]):
     """A modal screen for viewing job output."""
@@ -43,6 +45,11 @@ class OutputViewerModal(ModalScreen[None]):
         padding: 0 1;
         background: $surface-darken-1;
     }
+
+    OutputViewerModal #output-log {
+    height: 1fr;
+    padding: 1;
+    }
     """
 
     def __init__(
@@ -61,6 +68,19 @@ class OutputViewerModal(ModalScreen[None]):
         self.stderr_content = stderr_content
         self.showing_stderr = show_stderr
 
+    def action_toggle_output(self) -> None:
+        self.showing_stderr = not self.showing_stderr
+        output_type = "stderr" if self.showing_stderr else "stdout"
+        content = self.stderr_content if self.showing_stderr else self.stdout_content
+
+        self.query_one(".output-header", Static).update(
+            f"Job {self.job_id} ({self.job_name}) - {output_type}"
+        )
+
+        log = self.query_one("#output-log", RichLog)
+        log.clear()
+        log.write(content)
+        log.scroll_home(animate=False)
 
     def compose(self) -> ComposeResult:
         output_type = "stderr" if self.showing_stderr else "stdout"
@@ -70,24 +90,13 @@ class OutputViewerModal(ModalScreen[None]):
                 f"Job {self.job_id} ({self.job_name}) - {output_type}",
                 classes="output-header",
             ),
-            ScrollableContainer(
-                Static(content, classes="output-content"),
-                id="scroll-container",
-            ),
+            RichLog(id="output-log", highlight=True, markup=False, wrap=True),
             Static(
                 "[Tab] Toggle stdout/stderr | [Esc/o] Close", classes="output-footer"
             ),
         )
 
-    def action_toggle_output(self) -> None:
-        self.showing_stderr = not self.showing_stderr
-        output_type = "stderr" if self.showing_stderr else "stdout"
+    def on_mount(self) -> None:
+        log = self.query_one("#output-log", RichLog)
         content = self.stderr_content if self.showing_stderr else self.stdout_content
-
-        self.query_one(".output-header", Static).update(
-            f"Job {self.job_id} ({self.job_name}) - {output_type}"
-        )
-        self.query_one(".output-content", Static).update(content)
-
-        # Scroll back to top when switching
-        self.query_one("#scroll-container", ScrollableContainer).scroll_home(animate=False)
+        log.write(content)
