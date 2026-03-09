@@ -10,7 +10,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Footer, Header, Static
 from mruls.ConfirmCancelDialog import ConfirmCancelDialog
 from mruls.OutputViewerModal import OutputViewerModal
-from mruls.Config import Config, Path
+from mruls.Config import Config, Path, DEFAULT_CONFIG_PATH
 
 from mruls.slurm import (
     Job,
@@ -110,7 +110,7 @@ class MrulsApp(App):
         super().__init__()
 
         # Config
-        self._config = Config.load(config_path or Config.DEFAULT_CONFIG_PATH)
+        self._config = Config.load(config_path or DEFAULT_CONFIG_PATH)
 
         self.current_user = os.environ.get("USER", "")
 
