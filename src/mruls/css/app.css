@@ -1,0 +1,55 @@
+#main-container {
+    height: 1fr;
+}
+
+#main-container.horizontal {
+    layout: horizontal;
+}
+
+#main-container.vertical {
+    layout: vertical;
+}
+
+#table-container {
+    height: 1fr;
+    width: 1fr;
+}
+
+DataTable {
+    height: 1fr;
+}
+
+DataTable > .datatable--cursor {
+    background: $accent;
+}
+
+.job-running {
+    color: $success;
+}
+
+.job-pending {
+    color: $warning;
+}
+
+.job-failed {
+    color: $error;
+}
+
+#output-panel {
+    display: none;
+}
+
+#output-panel.visible {
+    display: block;
+}
+
+#output-panel.bottom {
+    height: 15;
+    width: 100%;
+    dock: bottom;
+}
+
+#output-panel.side {
+    width: 50%;
+    height: 100%;
+}
