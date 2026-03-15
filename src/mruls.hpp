@@ -16,6 +16,13 @@ public:
     ~mruls();
     void loop();
 
+    enum class DialogType
+    {
+        None = 0,
+        Quit,
+        KillJob,
+    };
+
 private:
     void initUI();
     void render();
@@ -28,6 +35,7 @@ private:
     std::vector<std::pair<std::string, std::string>>
     parseJobDetail(const std::string &raw);
     std::vector<ftxui::Element> jobDetailLines(const std::string &raw_content);
+    ftxui::Element renderDialog();
 
     void detail_beginning();
     void detail_end();
@@ -45,6 +53,13 @@ private:
     bool handle_key_sequence(const std::string &ch);
 
 private:
+    enum class ViewType
+    {
+        JOB_LIST = 0,
+        JOB_DETAIL,
+        JOB_OUTPUT,
+    };
+
     std::mutex m_mutex;
     ftxui::ScreenInteractive m_screen;
     ftxui::Component m_main_view;
@@ -55,7 +70,6 @@ private:
 
     int m_detail_scroll{-1};
     std::string m_job_detail;
-    bool m_detail{false};
     int m_detail_selected{-1};
 
     int m_selected_row{-1};
@@ -63,4 +77,15 @@ private:
     std::vector<std::pair<std::string, std::string>> m_detail_rows;
 
     std::string m_key_buf;
+
+    // Cached parsed table state
+    std::vector<std::vector<std::string>>
+        m_display_rows; // header + numbered data rows
+    std::vector<int> m_col_widths;
+    bool m_output_dirty{true};
+    std::atomic<bool> m_detail_cancel;
+    std::condition_variable m_cv;
+    ViewType m_view_type{ViewType::JOB_LIST};
+
+    DialogType m_dialog_type{DialogType::None};
 };

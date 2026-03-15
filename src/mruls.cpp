@@ -63,10 +63,10 @@ mruls::parseJobDetail(const std::string &raw)
 void
 mruls::fetchJobDetail(std::string job_id)
 {
-    // Join any previous fetch first
+    m_detail_cancel.store(true);
     if (m_detail_thread.joinable())
-        m_detail_thread.join();
-
+        m_detail_thread.detach();
+    m_detail_cancel.store(false);
     m_detail_thread = std::thread([this, job_id]()
     {
         std::string cmd    = "scontrol show job " + job_id;
@@ -98,15 +98,29 @@ mruls::mruls() : m_screen(ftxui::ScreenInteractive::Fullscreen())
     {
         while (m_running)
         {
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-
-            if (m_detail)
-                continue; // don't refresh table while in detail view
-
-            auto output = exec(SQUEUE_CMD);
             {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                m_output = std::move(output);
+                std::unique_lock<std::mutex> lk(m_mutex);
+                m_cv.wait_for(lk, std::chrono::seconds(5),
+                              [this] { return !m_running.load(); });
+                if (!m_running)
+                    break;
+            }
+
+            if (m_view_type == ViewType::JOB_LIST)
+            {
+                auto output = exec(SQUEUE_CMD);
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    if (!m_running)
+                        break;
+                    m_output       = std::move(output);
+                    m_output_dirty = true;
+                }
+            }
+
+            else if (m_view_type == ViewType::JOB_OUTPUT)
+            {
+                auto job_output = exec();
             }
 
             if (m_running)
@@ -117,52 +131,87 @@ mruls::mruls() : m_screen(ftxui::ScreenInteractive::Fullscreen())
 
 mruls::~mruls()
 {
-    m_running = false;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_running = false;
+    }
+    m_cv.notify_all();
+
     if (m_job_thread.joinable())
         m_job_thread.join();
-}
 
+    if (m_detail_thread.joinable())
+        m_detail_thread.join();
+}
 ftxui::Element
 mruls::renderTable(const std::string &output)
 {
     using namespace ftxui;
 
-    auto rows = parseOutput(output);
-    if (rows.empty())
+    if (m_output_dirty)
+    {
+        auto rows = parseOutput(output);
+
+        if (rows.empty())
+        {
+            m_display_rows.clear();
+            m_col_widths.clear();
+            m_output_dirty = false;
+            return text("No jobs") | center;
+        }
+
+        // Save raw rows for job_select (no index column yet)
+        m_current_rows = rows;
+
+        int nrows    = (int)rows.size();
+        size_t ncols = rows[0].size() + 1; // +1 for index column
+
+        // Clamp selection before we need it
+        m_selected_row
+            = (nrows <= 1) ? 0 : std::clamp(m_selected_row, 1, nrows - 1);
+
+        // Insert index column
+        rows[0].insert(rows[0].begin(), "#");
+        for (int i = 1; i < nrows; ++i)
+            rows[i].insert(rows[i].begin(), std::to_string(i));
+
+        // Ensure all rows have the same width, then compute col widths
+        m_col_widths.assign(ncols, 0);
+        for (auto &row : rows)
+        {
+            row.resize(ncols, "");
+            for (size_t c = 0; c < ncols; ++c)
+                m_col_widths[c] = std::max(m_col_widths[c], (int)row[c].size());
+        }
+
+        m_display_rows = std::move(rows);
+        m_output_dirty = false;
+    }
+
+    if (m_display_rows.empty())
         return text("No jobs") | center;
 
-    m_current_rows = rows;
+    int nrows    = (int)m_display_rows.size();
+    size_t ncols = m_col_widths.size();
 
-    int nrows = (int)rows.size();
-
-    rows[0].insert(rows[0].begin(), "#");
+    // Re-clamp in case selection changed since last parse
     m_selected_row
         = (nrows <= 1) ? 0 : std::clamp(m_selected_row, 1, nrows - 1);
 
-    for (int i = 1; i < nrows; ++i)
-        rows[i].insert(rows[i].begin(), std::to_string(i));
-
-    size_t ncols = rows[0].size();
-
-    // Calculate max column widths
-    std::vector<int> col_widths(ncols, 0);
-    for (auto &row : rows)
-    {
-        row.resize(ncols, "");
-        for (size_t c = 0; c < ncols; ++c)
-            col_widths[c] = std::max(col_widths[c], (int)row[c].size());
-    }
-
     Elements grid_rows;
+    grid_rows.reserve(nrows + 1); // +1 for separator
+
     for (int i = 0; i < nrows; ++i)
     {
         Elements cells;
+        cells.reserve(ncols);
+
         for (size_t c = 0; c < ncols; ++c)
         {
             Element cell = (c == ncols - 1)
-                               ? text(rows[i][c]) | flex_grow
-                               : text(rows[i][c])
-                                     | size(WIDTH, EQUAL, col_widths[c] + 2);
+                               ? text(m_display_rows[i][c]) | flex_grow
+                               : text(m_display_rows[i][c])
+                                     | size(WIDTH, EQUAL, m_col_widths[c] + 2);
             cells.push_back(std::move(cell));
         }
 
@@ -246,7 +295,7 @@ mruls::initUI()
 
     auto renderer = Renderer([this]() -> Element
     {
-        if (m_detail)
+        if (m_view_type == ViewType::JOB_DETAIL)
             return renderDetail();
 
         std::string output;
@@ -264,12 +313,12 @@ mruls::initUI()
 
     m_main_view = CatchEvent(focusable, [this](Event event) -> bool
     {
-        if (m_detail)
+        if (m_view_type == ViewType::JOB_DETAIL)
         {
             if (event == Event::Escape)
             {
                 m_key_buf.clear();
-                m_detail = false;
+                m_view_type = ViewType::JOB_LIST;
                 m_screen.PostEvent(ftxui::Event::Custom);
                 return true;
             }
@@ -328,16 +377,23 @@ mruls::initUI()
         // --- Table view ---
         if (event.is_character())
         {
-            const std::string ch = event.character();
+            const std::string &ch = event.character();
 
             if (ch == "r")
             {
                 refresh_job_list();
                 return true;
             }
+
             if (ch == "q")
             {
                 quit();
+                return true;
+            }
+
+            if (ch == "i")
+            {
+                job_select();
                 return true;
             }
 
@@ -346,6 +402,7 @@ mruls::initUI()
                 job_next_line();
                 return true;
             }
+
             if (ch == "k" && m_key_buf.empty())
             {
                 job_prev_line();
@@ -361,14 +418,16 @@ mruls::initUI()
             job_next_line();
             return true;
         }
+
         if (event == Event::ArrowUp)
         {
             job_prev_line();
             return true;
         }
+
         if (event == Event::Return)
         {
-            job_select();
+            m_view_type = ViewType::JOB_OUTPUT;
             return true;
         }
 
@@ -421,7 +480,8 @@ mruls::refresh_job_list()
     auto output = exec(SQUEUE_CMD);
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        m_output = std::move(output);
+        m_output       = std::move(output);
+        m_output_dirty = true;
     }
     m_screen.PostEvent(ftxui::Event::Custom);
 }
@@ -451,7 +511,7 @@ mruls::job_select()
 {
     if (!m_current_rows.empty() && m_selected_row < (int)m_current_rows.size())
     {
-        m_detail           = true;
+        m_view_type        = ViewType::JOB_DETAIL;
         m_detail_scroll    = 0;
         m_detail_selected  = 0;
         std::string job_id = m_current_rows[m_selected_row][0];
@@ -482,7 +542,7 @@ mruls::handle_key_sequence(const std::string &ch)
     m_key_buf += ch;
 
     // Detail view sequences
-    if (m_detail)
+    if (m_view_type == ViewType::JOB_DETAIL)
     {
         if (m_key_buf == "g")
             return true; // wait for second key
