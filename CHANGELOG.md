@@ -1,3 +1,9 @@
+# 0.1.1
+
+- Add config file support [TOML]
+- Add support for custom job commands
+
+
 # 0.1.0
 
 - Add job list
