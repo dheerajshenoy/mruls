@@ -28,6 +28,7 @@ private:
     void render();
 
     ftxui::Element renderDetail();
+    ftxui::Element renderOutput();
     ftxui::Element renderTable(const std::string &output);
     void fetchJobDetail(std::string id);
     ftxui::Element formatJobDetail(const std::string &raw_content);
@@ -51,6 +52,7 @@ private:
     void quit();
     void refresh_job_list();
     bool handle_key_sequence(const std::string &ch);
+    std::string getStdOutPathFromJob(const std::string &job_id) noexcept;
 
 private:
     enum class ViewType
@@ -68,15 +70,15 @@ private:
     std::thread m_detail_thread;
     std::atomic<bool> m_running{false};
 
-    int m_detail_scroll{-1};
+    int m_scroll_y{-1};
     std::string m_job_detail;
     int m_detail_selected{-1};
 
     int m_selected_row{-1};
     std::vector<std::vector<std::string>> m_current_rows;
     std::vector<std::pair<std::string, std::string>> m_detail_rows;
-
     std::string m_key_buf;
+    std::string m_stdout_file_path;
 
     // Cached parsed table state
     std::vector<std::vector<std::string>>

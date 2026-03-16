@@ -32,7 +32,7 @@ parseOutput(const std::string &output)
 }
 
 static std::string
-exec(const char *cmd)
+exec(const char *cmd) noexcept
 {
     std::array<char, 128> buffer;
     std::string result;
@@ -80,7 +80,7 @@ mruls::fetchJobDetail(std::string job_id)
             std::lock_guard<std::mutex> lock(m_mutex);
             m_detail_rows     = std::move(parsed);
             m_detail_selected = 0;
-            m_detail_scroll   = 0;
+            m_scroll_y        = 0;
         }
 
         m_screen.PostEvent(ftxui::Event::Custom);
@@ -120,7 +120,19 @@ mruls::mruls() : m_screen(ftxui::ScreenInteractive::Fullscreen())
 
             else if (m_view_type == ViewType::JOB_OUTPUT)
             {
-                auto job_output = exec();
+                if (!m_output.empty())
+                {
+                    auto output
+                        = exec(("tail -n 200 " + m_stdout_file_path).data());
+                    {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        if (!m_running)
+                            break;
+
+                        m_output       = output;
+                        m_output_dirty = true;
+                    }
+                }
             }
 
             if (m_running)
@@ -249,12 +261,10 @@ mruls::renderDetail()
 
     m_detail_selected
         = std::clamp(m_detail_selected, 0, std::max(0, total - 1));
-    m_detail_scroll
-        = std::clamp(m_detail_scroll, 0, std::max(0, total - visible));
+    m_scroll_y = std::clamp(m_scroll_y, 0, std::max(0, total - visible));
 
     Elements elems;
-    for (int i = m_detail_scroll;
-         i < std::min(total, m_detail_scroll + visible); ++i)
+    for (int i = m_scroll_y; i < std::min(total, m_scroll_y + visible); ++i)
     {
         const auto &[key, val] = rows[i];
         Element line           = hbox({
@@ -282,6 +292,43 @@ mruls::renderDetail()
     });
 }
 
+ftxui::Element
+mruls::renderOutput()
+{
+    using namespace ftxui;
+
+    std::string raw_content;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        raw_content = m_output;
+    }
+
+    // Split raw_content into lines for rendering
+    std::vector<std::string> lines;
+    std::istringstream iss(raw_content);
+    std::string line;
+    while (std::getline(iss, line))
+    {
+        lines.push_back(line);
+    }
+
+    int total_lines    = (int)lines.size();
+    int visible_height = m_screen.dimy() - FOOTER_HEIGHT;
+
+    // Ensure scroll stays within bounds
+    m_scroll_y
+        = std::clamp(m_scroll_y, 0, std::max(0, total_lines - visible_height));
+
+    Elements content_elems;
+    for (int i = m_scroll_y;
+         i < std::min(total_lines, m_scroll_y + visible_height); ++i)
+    {
+        content_elems.push_back(text(lines[i]));
+    }
+
+    return vbox({std::move(content_elems)});
+}
+
 void
 mruls::loop()
 {
@@ -297,6 +344,9 @@ mruls::initUI()
     {
         if (m_view_type == ViewType::JOB_DETAIL)
             return renderDetail();
+
+        if (m_view_type == ViewType::JOB_OUTPUT)
+            return renderOutput();
 
         std::string output;
         {
@@ -374,6 +424,65 @@ mruls::initUI()
             return false;
         }
 
+        // --- Job Output View ---
+        if (m_view_type == ViewType::JOB_OUTPUT)
+        {
+            if (event == Event::Escape)
+            {
+                m_key_buf.clear();
+                m_view_type = ViewType::JOB_LIST;
+                m_screen.PostEvent(ftxui::Event::Custom);
+                return true;
+            }
+
+            // Handle sequences BEFORE single-char bindings
+            // so 'g' can be buffered and 'j'/'k' don't steal it
+            if (event.is_character())
+            {
+                const std::string ch = event.character();
+
+                // 'j' and 'k' only act as movement if not completing a sequence
+                if (ch == "j" && m_key_buf.empty())
+                {
+                    return true;
+                }
+                if (ch == "k" && m_key_buf.empty())
+                {
+                    return true;
+                }
+
+                // All other chars go through sequence handler
+                if (handle_key_sequence(ch))
+                    return true;
+            }
+
+            if (event == Event::ArrowDown)
+            {
+                return true;
+            }
+            if (event == Event::ArrowUp)
+            {
+
+                return true;
+            }
+
+            if (event.is_mouse())
+            {
+                if (event.mouse().button == Mouse::WheelUp)
+                {
+
+                    return true;
+                }
+                if (event.mouse().button == Mouse::WheelDown)
+                {
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         // --- Table view ---
         if (event.is_character())
         {
@@ -427,7 +536,24 @@ mruls::initUI()
 
         if (event == Event::Return)
         {
-            m_view_type = ViewType::JOB_OUTPUT;
+            if (!m_current_rows.empty()
+                && m_selected_row < (int)m_current_rows.size())
+            {
+                std::string job_id = m_current_rows[m_selected_row][0];
+
+                m_stdout_file_path = getStdOutPathFromJob(job_id);
+
+                if (!m_stdout_file_path.empty())
+                {
+                    m_view_type = ViewType::JOB_OUTPUT;
+                    m_cv.notify_all();
+                }
+                else
+                {
+                    // TODO: Show a dialog saying there's no stdout
+                }
+            }
+
             return true;
         }
 
@@ -439,7 +565,7 @@ void
 mruls::detail_beginning()
 {
     m_detail_selected = 0;
-    m_detail_scroll   = 0;
+    m_scroll_y        = 0;
     m_screen.PostEvent(ftxui::Event::Custom);
 }
 
@@ -449,7 +575,7 @@ mruls::detail_end()
     int total         = (int)m_detail_rows.size();
     int visible       = m_screen.dimy() - FOOTER_HEIGHT;
     m_detail_selected = std::max(0, total - 1);
-    m_detail_scroll   = std::max(0, total - visible);
+    m_scroll_y        = std::max(0, total - visible);
     m_screen.PostEvent(ftxui::Event::Custom);
 }
 
@@ -460,8 +586,8 @@ mruls::detail_next_line()
     int total   = m_detail_rows.size();
 
     m_detail_selected = std::min(m_detail_selected + 1, total - 1);
-    if (m_detail_selected >= m_detail_scroll + visible)
-        m_detail_scroll = m_detail_selected - visible + 1;
+    if (m_detail_selected >= m_scroll_y + visible)
+        m_scroll_y = m_detail_selected - visible + 1;
     m_screen.PostEvent(ftxui::Event::Custom);
 }
 
@@ -469,8 +595,8 @@ void
 mruls::detail_prev_line()
 {
     m_detail_selected = std::max(0, m_detail_selected - 1);
-    if (m_detail_selected < m_detail_scroll)
-        m_detail_scroll = m_detail_selected;
+    if (m_detail_selected < m_scroll_y)
+        m_scroll_y = m_detail_selected;
     m_screen.PostEvent(ftxui::Event::Custom);
 }
 
@@ -512,7 +638,7 @@ mruls::job_select()
     if (!m_current_rows.empty() && m_selected_row < (int)m_current_rows.size())
     {
         m_view_type        = ViewType::JOB_DETAIL;
-        m_detail_scroll    = 0;
+        m_scroll_y         = 0;
         m_detail_selected  = 0;
         std::string job_id = m_current_rows[m_selected_row][0];
         fetchJobDetail(job_id);
@@ -584,4 +710,19 @@ mruls::handle_key_sequence(const std::string &ch)
     // No match — discard
     m_key_buf.clear();
     return false;
+}
+
+std::string
+mruls::getStdOutPathFromJob(const std::string &job_id) noexcept
+{
+    std::string cmd = "scontrol show job " + job_id;
+    auto raw        = exec(cmd.c_str());
+
+    auto rows = parseJobDetail(raw);
+
+    for (auto &[k, v] : rows)
+        if (k == "StdOut")
+            return v;
+
+    return {};
 }
