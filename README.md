@@ -13,6 +13,14 @@ make
 make install # if you can
 ```
 
+# Usage
+
+```bash
+mruls --help
+```
+
+This will display the help message with available options. You can run `mruls` without any arguments to see your current SLURM tasks for the current user. You can also specify a different user with the `-u` or `--user` option.
+
 # Requirements
 
 - C++17
