@@ -1,6 +1,7 @@
 #pragma once
 
 #include "argparse.hpp"
+#include "config.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -81,6 +82,7 @@ private:
 
     // Configuration
     void initConfig();
+    void initDefaultConfig();
 
 private:
     static constexpr int FOOTER_HEIGHT    = 4;
@@ -123,4 +125,5 @@ private:
 
     // Configuration
     std::string m_config_file_path;
+    Config m_config;
 };
