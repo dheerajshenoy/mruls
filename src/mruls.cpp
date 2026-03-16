@@ -683,16 +683,28 @@ mruls::renderOutput()
 {
     std::lock_guard lock(m_mutex);
 
+    // Split on both \n and \r to handle progress bar output
+    // Progress bars use \r to overwrite lines, which creates multiple
+    // "lines" in the raw file that should be displayed separately
     std::vector<std::string> lines;
-    std::istringstream iss(m_raw_output);
-    std::string line;
-    while (std::getline(iss, line))
+    std::string current;
+    for (char c : m_raw_output)
     {
-        // Strip carriage returns (handles Windows-style line endings)
-        if (!line.empty() && line.back() == '\r')
-            line.pop_back();
-        lines.push_back(std::move(line));
+        if (c == '\n' || c == '\r')
+        {
+            if (!current.empty())
+            {
+                lines.push_back(std::move(current));
+                current.clear();
+            }
+        }
+        else
+        {
+            current += c;
+        }
     }
+    if (!current.empty())
+        lines.push_back(std::move(current));
 
     int total   = static_cast<int>(lines.size());
     int visible = m_screen.dimy() - FOOTER_HEIGHT;
