@@ -1,6 +1,7 @@
 #include "mruls.hpp"
 
 #include "argparse.hpp"
+#include "toml.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,10 +10,8 @@
 #include <memory>
 #include <sstream>
 
-using namespace ftxui;
-
 mruls::mruls(const argparse::ArgumentParser &parser)
-    : m_screen(ScreenInteractive::Fullscreen())
+    : m_screen(ftxui::ScreenInteractive::Fullscreen())
 {
     readArgs(parser);
 
@@ -58,7 +57,7 @@ mruls::mruls(const argparse::ArgumentParser &parser)
             }
 
             if (m_running)
-                m_screen.PostEvent(Event::Custom);
+                m_screen.PostEvent(ftxui::Event::Custom);
         }
     });
 }
@@ -85,9 +84,19 @@ mruls::readArgs(const argparse::ArgumentParser &parser)
 }
 
 void
+mruls::initDefaultConfig()
+{
+    // No configuration for now, but this is where defaults would be set
+}
+
+void
 mruls::initConfig()
 {
-    // Placeholder for future configuration loading logic
+    if (m_config_file_path.empty())
+    {
+        initDefaultConfig();
+        return;
+    }
 }
 
 void
@@ -99,7 +108,7 @@ mruls::loop()
 void
 mruls::initUI()
 {
-    auto renderer = Renderer([this]
+    auto renderer = ftxui::Renderer([this]
     {
         switch (m_view_type)
         {
@@ -112,8 +121,8 @@ mruls::initUI()
         }
     });
 
-    m_main_view
-        = CatchEvent(renderer, [this](Event e) { return handleEvent(e); });
+    m_main_view = CatchEvent(renderer,
+                             [this](ftxui::Event e) { return handleEvent(e); });
 }
 
 // ============================================================================
@@ -121,10 +130,10 @@ mruls::initUI()
 // ============================================================================
 
 bool
-mruls::handleEvent(Event event)
+mruls::handleEvent(ftxui::Event event)
 {
     // ESC - go back from detail/output views
-    if (event == Event::Escape)
+    if (event == ftxui::Event::Escape)
     {
         if (m_view_type != ViewType::JOB_LIST)
         {
@@ -135,7 +144,8 @@ mruls::handleEvent(Event event)
     }
 
     // Keyboard navigation
-    if (event == Event::ArrowDown || event == Event::Character("j"))
+    if (event == ftxui::Event::ArrowDown
+        || event == ftxui::Event::Character("j"))
     {
         if (m_key_buffer.empty())
         {
@@ -144,7 +154,7 @@ mruls::handleEvent(Event event)
         }
     }
 
-    if (event == Event::ArrowUp || event == Event::Character("k"))
+    if (event == ftxui::Event::ArrowUp || event == ftxui::Event::Character("k"))
     {
         if (m_key_buffer.empty())
         {
@@ -156,12 +166,12 @@ mruls::handleEvent(Event event)
     // Mouse wheel
     if (event.is_mouse())
     {
-        if (event.mouse().button == Mouse::WheelDown)
+        if (event.mouse().button == ftxui::Mouse::WheelDown)
         {
             navDown();
             return true;
         }
-        if (event.mouse().button == Mouse::WheelUp)
+        if (event.mouse().button == ftxui::Mouse::WheelUp)
         {
             navUp();
             return true;
@@ -209,7 +219,7 @@ mruls::handleEvent(Event event)
     }
 
     // Enter - view job output (job list only)
-    if (event == Event::Return && m_view_type == ViewType::JOB_LIST)
+    if (event == ftxui::Event::Return && m_view_type == ViewType::JOB_LIST)
     {
         int count = getRowCount();
         if (m_selected > 0 && m_selected < count)
@@ -276,7 +286,7 @@ mruls::navUp()
     {
         m_selected = std::max(1, m_selected - 1);
     }
-    m_screen.PostEvent(Event::Custom);
+    m_screen.PostEvent(ftxui::Event::Custom);
 }
 
 void
@@ -301,7 +311,7 @@ mruls::navDown()
         int max    = getRowCount() - 1;
         m_selected = std::min(m_selected + 1, std::max(1, max));
     }
-    m_screen.PostEvent(Event::Custom);
+    m_screen.PostEvent(ftxui::Event::Custom);
 }
 
 void
@@ -322,7 +332,7 @@ mruls::navBegin()
     {
         m_selected = 1;
     }
-    m_screen.PostEvent(Event::Custom);
+    m_screen.PostEvent(ftxui::Event::Custom);
 }
 
 void
@@ -346,7 +356,7 @@ mruls::navEnd()
     {
         m_selected = std::max(1, getRowCount() - 1);
     }
-    m_screen.PostEvent(Event::Custom);
+    m_screen.PostEvent(ftxui::Event::Custom);
 }
 
 void
@@ -382,7 +392,7 @@ mruls::goBack()
     }
 
     m_cv.notify_all();
-    m_screen.PostEvent(Event::Custom);
+    m_screen.PostEvent(ftxui::Event::Custom);
 }
 
 void
@@ -426,7 +436,7 @@ mruls::fetchJobDetail(const std::string &job_id)
         }
 
         m_detail_pending = false;
-        m_screen.PostEvent(Event::Custom);
+        m_screen.PostEvent(ftxui::Event::Custom);
     });
 }
 
@@ -439,7 +449,7 @@ mruls::refreshJobList()
         m_raw_output = std::move(output);
         m_dirty      = true;
     }
-    m_screen.PostEvent(Event::Custom);
+    m_screen.PostEvent(ftxui::Event::Custom);
 }
 
 std::string
@@ -493,14 +503,14 @@ mruls::toggleOutputType()
         m_scroll_y    = INT_MAX; // Scroll to end, clamped in render
     }
 
-    m_screen.PostEvent(Event::Custom);
+    m_screen.PostEvent(ftxui::Event::Custom);
 }
 
 // ============================================================================
 // Rendering
 // ============================================================================
 
-Element
+ftxui::Element
 mruls::renderJobList()
 {
     std::lock_guard lock(m_mutex);
@@ -513,7 +523,7 @@ mruls::renderJobList()
         if (m_job_rows.empty())
         {
             m_col_widths.clear();
-            return text("No jobs") | center;
+            return ftxui::text("No jobs") | ftxui::center;
         }
 
         // Calculate column widths
@@ -536,55 +546,62 @@ mruls::renderJobList()
     }
 
     if (m_job_rows.empty())
-        return text("No jobs") | center;
+        return ftxui::text("No jobs") | ftxui::center;
 
     int nrows  = static_cast<int>(m_job_rows.size());
     m_selected = std::clamp(m_selected, 1, std::max(1, nrows - 1));
 
-    Elements rows;
+    ftxui::Elements rows;
     rows.reserve(nrows + 1);
 
     for (int i = 0; i < nrows; ++i)
     {
-        Elements cells;
+        ftxui::Elements cells;
         cells.reserve(m_col_widths.size());
 
         // Index column
         auto idx = (i == 0) ? "#" : std::to_string(i);
-        cells.push_back(text(idx) | size(WIDTH, EQUAL, m_col_widths[0] + 2));
+        cells.push_back(
+            ftxui::text(idx)
+            | size(ftxui::WIDTH, ftxui::EQUAL, m_col_widths[0] + 2));
 
         // Data columns
         for (size_t c = 0; c < m_job_rows[i].size(); ++c)
         {
             auto cell = (c == m_job_rows[i].size() - 1)
-                            ? text(m_job_rows[i][c]) | flex_grow
-                            : text(m_job_rows[i][c])
-                                  | size(WIDTH, EQUAL, m_col_widths[c + 1] + 2);
+                            ? ftxui::text(m_job_rows[i][c]) | ftxui::flex_grow
+                            : ftxui::text(m_job_rows[i][c])
+                                  | size(ftxui::WIDTH, ftxui::EQUAL,
+                                         m_col_widths[c + 1] + 2);
             cells.push_back(std::move(cell));
         }
 
-        Element row = hbox(std::move(cells));
+        ftxui::Element row = hbox(std::move(cells));
 
         if (i == 0)
-            row = row | bold;
+            row = row | ftxui::bold;
         else if (i == m_selected)
-            row = row | bgcolor(Color::Blue) | color(Color::White) | bold;
+            row = row | bgcolor(ftxui::Color::Blue) | color(ftxui::Color::White)
+                  | ftxui::bold;
 
         rows.push_back(std::move(row));
 
         if (i == 0)
-            rows.push_back(separator());
+            rows.push_back(ftxui::separator());
     }
 
-    return vbox({
-        text("MRULS") | center | bold | color(Color::Blue),
-        vbox(std::move(rows)) | flex,
+    return ftxui::vbox({
+        ftxui::text("MRULS") | ftxui::center | ftxui::bold
+            | color(ftxui::Color::Blue),
+        vbox(std::move(rows)) | ftxui::flex,
     });
 }
 
-Element
+ftxui::Element
 mruls::renderDetail()
 {
+    using namespace ftxui;
+
     std::lock_guard lock(m_mutex);
 
     if (m_detail_rows.empty())
@@ -631,9 +648,11 @@ mruls::renderDetail()
     });
 }
 
-Element
+ftxui::Element
 mruls::renderOutput()
 {
+    using namespace ftxui;
+
     std::lock_guard lock(m_mutex);
 
     // Split on both \n and \r to handle progress bar output
