@@ -1,0 +1,14 @@
+[slurm]
+username = "$(whoami)"
+# squeue_cmd = ""
+
+[job_list]
+refresh_interval = 5
+
+[job_details]
+refresh_interval = 5
+
+[job_output]
+refresh_interval = 5
+
+
