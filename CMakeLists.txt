@@ -24,3 +24,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ftxui::dom
     ftxui::screen
 )
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    APP_NAME="${PROJECT_NAME}"
+    APP_VERSION="${PROJECT_VERSION}"
+)
