@@ -15,6 +15,12 @@ mruls::mruls(const argparse::ArgumentParser &parser)
 {
     readArgs(parser);
 
+    if (execCommand("which squeue") == "")
+    {
+        std::cerr << "Error: 'squeue' command not found in PATH" << std::endl;
+        std::exit(1);
+    }
+
     m_raw_output = execCommand(SQUEUE_CMD);
     initUI();
 
