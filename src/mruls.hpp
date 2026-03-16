@@ -62,7 +62,7 @@ private:
     parseOutput(const std::string &output);
     static std::vector<std::pair<std::string, std::string>>
     parseKeyValue(const std::string &raw);
-    static std::string execCommand(const std::string &cmd);
+    std::string execCommand(const std::string &cmd);
 
     // Navigation
     void navUp();
@@ -80,15 +80,16 @@ private:
     // Thread-safe state access
     int getRowCount() const;
 
+    void refresh() noexcept;
+
     // Configuration
     void initConfig();
     void initDefaultConfig();
 
 private:
-    static constexpr int FOOTER_HEIGHT    = 4;
-    static constexpr int REFRESH_INTERVAL = 5;
+    static constexpr int FOOTER_HEIGHT = 4;
     static constexpr const char *SQUEUE_CMD
-        = "squeue -o '%.8i %.9P %.8j %.8u %.2t %.10M %.6D %R'";
+        = "squeue -o '%.8i %.9P %8j %.8u %.2t %.10M %.6D %R'";
 
     // Screen (must be first - other members may depend on it)
     ftxui::ScreenInteractive m_screen;
