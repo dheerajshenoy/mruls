@@ -21,7 +21,7 @@ mruls::mruls(const argparse::ArgumentParser &parser)
         std::exit(1);
     }
 
-    m_raw_output = execCommand(SQUEUE_CMD);
+    m_raw_output = execCommand(m_config.slurm.squeue_cmd);
     initUI();
 
     // Background refresh thread
@@ -36,7 +36,7 @@ mruls::mruls(const argparse::ArgumentParser &parser)
 
             if (m_view_type == ViewType::JOB_LIST)
             {
-                output = execCommand(SQUEUE_CMD);
+                output = execCommand(m_config.slurm.squeue_cmd);
             }
             else if (m_view_type == ViewType::JOB_OUTPUT)
             {
@@ -87,6 +87,11 @@ mruls::refresh() noexcept
                 m_config.job_list.refresh_interval);
             break;
 
+        case ViewType::JOB_DETAIL:
+            time = std::chrono::duration<float>(
+                m_config.job_detail.refresh_interval);
+            break;
+
         case ViewType::JOB_OUTPUT:
             time = std::chrono::duration<float>(
                 m_config.job_output.refresh_interval);
@@ -110,6 +115,12 @@ mruls::readArgs(const argparse::ArgumentParser &parser)
         if (auto config = parser.get<std::string>("config"); !config.empty())
             m_config_file_path = std::move(config);
     }
+
+    if (parser.is_used("user"))
+    {
+        if (auto user = parser.get<std::string>("user"); !user.empty())
+            m_config.slurm.username = std::move(user);
+    }
 }
 
 void
@@ -125,6 +136,51 @@ mruls::initConfig()
     {
         initDefaultConfig();
         return;
+    }
+    else
+    {
+        parseConfig();
+    }
+}
+
+void
+mruls::parseConfig() noexcept
+{
+    toml::table toml;
+    try
+    {
+        toml = toml::parse_file(m_config_file_path);
+    }
+    catch (const toml::parse_error &e)
+    {
+        std::cerr << "Error parsing config file: " << e.what() << std::endl;
+        std::exit(1);
+    }
+
+    if (auto job_list = toml["job_list"])
+    {
+        if (auto refresh = job_list["refresh_interval"].value<float>())
+            m_config.job_list.refresh_interval = *refresh;
+    }
+
+    if (auto job_detail = toml["job_detail"])
+    {
+        if (auto refresh = job_detail["refresh_interval"].value<float>())
+            m_config.job_detail.refresh_interval = *refresh;
+    }
+
+    if (auto job_output = toml["job_output"])
+    {
+        if (auto refresh = job_output["refresh_interval"].value<float>())
+            m_config.job_output.refresh_interval = *refresh;
+    }
+
+    if (auto slurm = toml["slurm"])
+    {
+        if (auto username = slurm["username"].value<std::string>())
+            m_config.slurm.username = std::move(*username);
+        if (auto squeue_cmd = slurm["squeue_cmd"].value<std::string>())
+            m_config.slurm.squeue_cmd = std::move(*squeue_cmd);
     }
 }
 
@@ -415,7 +471,7 @@ mruls::goBack()
     m_view_type = ViewType::JOB_LIST;
 
     // Refresh job list data since m_raw_output may contain output view data
-    auto output = execCommand(SQUEUE_CMD);
+    auto output = execCommand(m_config.slurm.squeue_cmd);
     {
         std::lock_guard lock(m_mutex);
         m_raw_output = std::move(output);
@@ -474,7 +530,7 @@ mruls::fetchJobDetail(const std::string &job_id)
 void
 mruls::refreshJobList()
 {
-    auto output = execCommand(SQUEUE_CMD);
+    auto output = execCommand(m_config.slurm.squeue_cmd);
     {
         std::lock_guard lock(m_mutex);
         m_raw_output = std::move(output);
