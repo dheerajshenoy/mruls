@@ -85,11 +85,10 @@ private:
     // Configuration
     void initConfig();
     void initDefaultConfig();
+    void parseConfig() noexcept;
 
 private:
     static constexpr int FOOTER_HEIGHT = 4;
-    static constexpr const char *SQUEUE_CMD
-        = "squeue -o '%.8i %.9P %8j %.8u %.2t %.10M %.6D %R'";
 
     // Screen (must be first - other members may depend on it)
     ftxui::ScreenInteractive m_screen;
