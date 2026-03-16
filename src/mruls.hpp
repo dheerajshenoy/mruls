@@ -1,93 +1,107 @@
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
-#include <ftxui/dom/table.hpp>
-#include <ftxui/screen/screen.hpp>
-#include <iostream>
+#include <mutex>
+#include <string>
 #include <thread>
+#include <vector>
 
 class mruls
 {
-
 public:
     mruls();
     ~mruls();
     void loop();
 
-    enum class DialogType
-    {
-        None = 0,
-        Quit,
-        KillJob,
-    };
-
-private:
-    void initUI();
-    void render();
-
-    ftxui::Element renderDetail();
-    ftxui::Element renderOutput();
-    ftxui::Element renderTable(const std::string &output);
-    void fetchJobDetail(std::string id);
-    ftxui::Element formatJobDetail(const std::string &raw_content);
-
-    std::vector<std::pair<std::string, std::string>>
-    parseJobDetail(const std::string &raw);
-    std::vector<ftxui::Element> jobDetailLines(const std::string &raw_content);
-    ftxui::Element renderDialog();
-
-    void detail_beginning();
-    void detail_end();
-    void detail_next_line();
-    void detail_prev_line();
-
-    void job_beginning();
-    void job_end();
-    void job_next_line();
-    void job_prev_line();
-    void job_select();
-
-    void quit();
-    void refresh_job_list();
-    bool handle_key_sequence(const std::string &ch);
-    std::string getStdOutPathFromJob(const std::string &job_id) noexcept;
+    // Non-copyable, non-movable (owns threads)
+    mruls(const mruls &)            = delete;
+    mruls &operator=(const mruls &) = delete;
+    mruls(mruls &&)                 = delete;
+    mruls &operator=(mruls &&)      = delete;
 
 private:
     enum class ViewType
     {
-        JOB_LIST = 0,
+        JOB_LIST,
         JOB_DETAIL,
         JOB_OUTPUT,
     };
 
-    std::mutex m_mutex;
+    // Initialization
+    void initUI();
+
+    // Rendering
+    ftxui::Element renderJobList();
+    ftxui::Element renderDetail();
+    ftxui::Element renderOutput();
+
+    // Data fetching
+    void fetchJobDetail(const std::string &job_id);
+    void refreshJobList();
+    std::string getStdOutPath(const std::string &job_id);
+
+    // Parsing
+    static std::vector<std::string> splitLine(const std::string &line);
+    static std::vector<std::vector<std::string>>
+    parseOutput(const std::string &output);
+    static std::vector<std::pair<std::string, std::string>>
+    parseKeyValue(const std::string &raw);
+    static std::string execCommand(const std::string &cmd);
+
+    // Navigation
+    void navUp();
+    void navDown();
+    void navBegin();
+    void navEnd();
+    void selectJob();
+    void goBack();
+    void quit();
+
+    // Event handling
+    bool handleEvent(ftxui::Event event);
+    bool handleKeySequence(const std::string &ch);
+
+    // Thread-safe state access
+    int getRowCount() const;
+
+private:
+    static constexpr int FOOTER_HEIGHT    = 4;
+    static constexpr int REFRESH_INTERVAL = 5;
+    static constexpr const char *SQUEUE_CMD
+        = "squeue -o '%.8i %.9P %.8j %.8u %.2t %.10M %.6D %R'";
+
+    // Screen (must be first - other members may depend on it)
     ftxui::ScreenInteractive m_screen;
     ftxui::Component m_main_view;
-    std::string m_output;
-    std::thread m_job_thread;
-    std::thread m_detail_thread;
-    std::atomic<bool> m_running{false};
 
-    int m_scroll_y{-1};
-    std::string m_job_detail;
-    int m_detail_selected{-1};
-
-    int m_selected_row{-1};
-    std::vector<std::vector<std::string>> m_current_rows;
-    std::vector<std::pair<std::string, std::string>> m_detail_rows;
-    std::string m_key_buf;
-    std::string m_stdout_file_path;
-
-    // Cached parsed table state
-    std::vector<std::vector<std::string>>
-        m_display_rows; // header + numbered data rows
-    std::vector<int> m_col_widths;
-    bool m_output_dirty{true};
-    std::atomic<bool> m_detail_cancel;
+    // Threading
+    mutable std::mutex m_mutex;
     std::condition_variable m_cv;
-    ViewType m_view_type{ViewType::JOB_LIST};
+    std::thread m_refresh_thread;
+    std::thread m_detail_thread;
+    std::atomic<bool> m_running{true};
+    std::atomic<bool> m_detail_pending{false};
 
-    DialogType m_dialog_type{DialogType::None};
+    // View state
+    ViewType m_view_type{ViewType::JOB_LIST};
+    std::string m_key_buffer;
+
+    // Job list state (protected by m_mutex)
+    std::string m_raw_output;
+    std::vector<std::vector<std::string>> m_job_rows;
+    std::vector<int> m_col_widths;
+    int m_selected{1}; // Start at first data row (0 is header)
+    bool m_dirty{true};
+
+    // Detail view state (protected by m_mutex)
+    std::vector<std::pair<std::string, std::string>> m_detail_rows;
+    int m_detail_selected{0};
+    int m_scroll_y{0};
+
+    // Output view state
+    std::string m_stdout_path;
 };
