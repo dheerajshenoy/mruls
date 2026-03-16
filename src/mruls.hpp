@@ -31,6 +31,12 @@ private:
         JOB_OUTPUT,
     };
 
+    enum class OutputType
+    {
+        STDOUT,
+        STDERR,
+    };
+
     // Initialization
     void initUI();
 
@@ -42,7 +48,9 @@ private:
     // Data fetching
     void fetchJobDetail(const std::string &job_id);
     void refreshJobList();
-    std::string getStdOutPath(const std::string &job_id);
+    void loadJobOutput(const std::string &job_id);
+    void toggleOutputType();
+    std::string getJobOutputPath(const std::string &job_id, OutputType type);
 
     // Parsing
     static std::vector<std::string> splitLine(const std::string &line);
@@ -103,5 +111,7 @@ private:
     int m_scroll_y{0};
 
     // Output view state
-    std::string m_stdout_path;
+    std::string m_current_job_id;
+    std::string m_output_path;
+    OutputType m_output_type{OutputType::STDOUT};
 };

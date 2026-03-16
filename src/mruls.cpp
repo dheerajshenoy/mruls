@@ -101,7 +101,7 @@ mruls::mruls() : m_screen(ScreenInteractive::Fullscreen())
                 std::string path;
                 {
                     std::lock_guard lock(m_mutex);
-                    path = m_stdout_path;
+                    path = m_output_path;
                 }
                 if (!path.empty())
                     output = execCommand("tail -n 200 '" + path + "'");
@@ -243,6 +243,16 @@ mruls::handleEvent(Event event)
                 return true;
             }
         }
+
+        // Output view specific commands
+        if (m_view_type == ViewType::JOB_OUTPUT)
+        {
+            if (ch == "e")
+            {
+                toggleOutputType();
+                return true;
+            }
+        }
     }
 
     // Enter - view job output (job list only)
@@ -256,17 +266,7 @@ mruls::handleEvent(Event event)
                 std::lock_guard lock(m_mutex);
                 job_id = m_job_rows[m_selected][0];
             }
-
-            auto path = getStdOutPath(job_id);
-            if (!path.empty())
-            {
-                std::lock_guard lock(m_mutex);
-                m_stdout_path = std::move(path);
-                m_raw_output
-                    = execCommand("tail -n 200 '" + m_stdout_path + "'");
-                m_view_type = ViewType::JOB_OUTPUT;
-                m_scroll_y  = 0;
-            }
+            loadJobOutput(job_id);
         }
         return true;
     }
@@ -419,10 +419,15 @@ mruls::goBack()
 {
     m_key_buffer.clear();
     m_view_type = ViewType::JOB_LIST;
+
+    // Refresh job list data since m_raw_output may contain output view data
+    auto output = execCommand(SQUEUE_CMD);
     {
         std::lock_guard lock(m_mutex);
-        m_dirty = true;
+        m_raw_output = std::move(output);
+        m_dirty      = true;
     }
+
     m_cv.notify_all();
     m_screen.PostEvent(Event::Custom);
 }
@@ -485,17 +490,57 @@ mruls::refreshJobList()
 }
 
 std::string
-mruls::getStdOutPath(const std::string &job_id)
+mruls::getJobOutputPath(const std::string &job_id, OutputType type)
 {
-    auto raw  = execCommand("scontrol show job " + job_id);
-    auto rows = parseKeyValue(raw);
+    auto raw        = execCommand("scontrol show job " + job_id);
+    auto rows       = parseKeyValue(raw);
+    const char *key = (type == OutputType::STDOUT) ? "StdOut" : "StdErr";
 
-    for (const auto &[key, val] : rows)
+    for (const auto &[k, v] : rows)
     {
-        if (key == "StdOut")
-            return val;
+        if (k == key)
+            return v;
     }
     return {};
+}
+
+void
+mruls::loadJobOutput(const std::string &job_id)
+{
+    auto path = getJobOutputPath(job_id, m_output_type);
+    if (!path.empty())
+    {
+        std::lock_guard lock(m_mutex);
+        m_current_job_id = job_id;
+        m_output_path    = std::move(path);
+        m_raw_output     = execCommand("tail -n 200 '" + m_output_path + "'");
+        m_view_type      = ViewType::JOB_OUTPUT;
+        m_scroll_y       = 0;
+    }
+}
+
+void
+mruls::toggleOutputType()
+{
+    m_output_type = (m_output_type == OutputType::STDOUT) ? OutputType::STDERR
+                                                          : OutputType::STDOUT;
+
+    std::string job_id;
+    {
+        std::lock_guard lock(m_mutex);
+        job_id = m_current_job_id;
+    }
+
+    auto path = getJobOutputPath(job_id, m_output_type);
+    if (!path.empty())
+    {
+        std::lock_guard lock(m_mutex);
+        m_output_path = std::move(path);
+        m_raw_output  = execCommand("tail -n 200 '" + m_output_path + "'");
+        m_scroll_y    = 0;
+    }
+
+    m_screen.PostEvent(Event::Custom);
 }
 
 // ============================================================================
@@ -655,16 +700,19 @@ mruls::renderOutput()
     for (int i = m_scroll_y; i < std::min(total, m_scroll_y + visible); ++i)
         elems.push_back(text(lines[i]));
 
+    const bool is_stdout = (m_output_type == OutputType::STDOUT);
+    const auto label     = is_stdout ? " STDOUT " : " STDERR ";
+    const auto bg_color  = is_stdout ? Color::Green : Color::Red;
+
     return vbox({
         hbox({
-            text(" JOB OUTPUT ") | bold | bgcolor(Color::Green)
-                | color(Color::Black),
+            text(label) | bold | bgcolor(bg_color) | color(Color::Black),
             filler(),
-            text(m_stdout_path) | dim,
+            text(m_output_path) | dim,
             text("  [ESC] Back ") | inverted,
         }),
         separator(),
         vbox(std::move(elems)) | flex,
-        text(" j/k/arrows: scroll | gg/G: start/end ") | dim,
+        text(" j/k: scroll | gg/G: start/end | e: toggle stdout/stderr ") | dim,
     });
 }
