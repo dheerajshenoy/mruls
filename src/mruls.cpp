@@ -27,17 +27,13 @@ mruls::mruls(const argparse::ArgumentParser &parser)
     // Background refresh thread
     m_refresh_thread = std::thread([this]
     {
+        std::string output;
+
         while (m_running)
         {
-            {
-                std::unique_lock lock(m_mutex);
-                m_cv.wait_for(lock, std::chrono::seconds(REFRESH_INTERVAL),
-                              [this] { return !m_running.load(); });
-                if (!m_running)
-                    return;
-            }
 
-            std::string output;
+            refresh();
+
             if (m_view_type == ViewType::JOB_LIST)
             {
                 output = execCommand(SQUEUE_CMD);
@@ -77,6 +73,33 @@ mruls::~mruls()
         m_refresh_thread.join();
     if (m_detail_thread.joinable())
         m_detail_thread.join();
+}
+
+void
+mruls::refresh() noexcept
+{
+    std::chrono::duration<float> time;
+
+    switch (m_view_type)
+    {
+        case ViewType::JOB_LIST:
+            time = std::chrono::duration<float>(
+                m_config.job_list.refresh_interval);
+            break;
+
+        case ViewType::JOB_OUTPUT:
+            time = std::chrono::duration<float>(
+                m_config.job_output.refresh_interval);
+            break;
+
+        default:
+            return;
+    }
+
+    std::unique_lock lock(m_mutex);
+    m_cv.wait_for(lock, time, [this] { return !m_running.load(); });
+    if (!m_running)
+        return;
 }
 
 void
@@ -120,8 +143,10 @@ mruls::initUI()
         {
             case ViewType::JOB_DETAIL:
                 return renderDetail();
+
             case ViewType::JOB_OUTPUT:
                 return renderOutput();
+
             default:
                 return renderJobList();
         }
