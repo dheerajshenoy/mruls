@@ -515,7 +515,7 @@ mruls::loadJobOutput(const std::string &job_id)
         m_output_path    = std::move(path);
         m_raw_output     = execCommand("tail -n 200 '" + m_output_path + "'");
         m_view_type      = ViewType::JOB_OUTPUT;
-        m_scroll_y       = 0;
+        m_scroll_y       = INT_MAX; // Scroll to end, clamped in render
     }
 }
 
@@ -537,7 +537,7 @@ mruls::toggleOutputType()
         std::lock_guard lock(m_mutex);
         m_output_path = std::move(path);
         m_raw_output  = execCommand("tail -n 200 '" + m_output_path + "'");
-        m_scroll_y    = 0;
+        m_scroll_y    = INT_MAX; // Scroll to end, clamped in render
     }
 
     m_screen.PostEvent(Event::Custom);
@@ -687,7 +687,12 @@ mruls::renderOutput()
     std::istringstream iss(m_raw_output);
     std::string line;
     while (std::getline(iss, line))
+    {
+        // Strip carriage returns (handles Windows-style line endings)
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
         lines.push_back(std::move(line));
+    }
 
     int total   = static_cast<int>(lines.size());
     int visible = m_screen.dimy() - FOOTER_HEIGHT;
