@@ -1,5 +1,7 @@
 #pragma once
 
+#include "argparse.hpp"
+
 #include <atomic>
 #include <condition_variable>
 #include <ftxui/component/component.hpp>
@@ -13,7 +15,7 @@
 class mruls
 {
 public:
-    mruls();
+    mruls(const argparse::ArgumentParser &args);
     ~mruls();
     void loop();
 
@@ -39,6 +41,7 @@ private:
 
     // Initialization
     void initUI();
+    void readArgs(const argparse::ArgumentParser &args);
 
     // Rendering
     ftxui::Element renderJobList();
@@ -75,6 +78,9 @@ private:
 
     // Thread-safe state access
     int getRowCount() const;
+
+    // Configuration
+    void initConfig();
 
 private:
     static constexpr int FOOTER_HEIGHT    = 4;
@@ -114,4 +120,7 @@ private:
     std::string m_current_job_id;
     std::string m_output_path;
     OutputType m_output_type{OutputType::STDOUT};
+
+    // Configuration
+    std::string m_config_file_path;
 };

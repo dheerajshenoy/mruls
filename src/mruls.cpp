@@ -1,5 +1,7 @@
 #include "mruls.hpp"
 
+#include "argparse.hpp"
+
 #include <algorithm>
 #include <array>
 #include <climits>
@@ -9,72 +11,11 @@
 
 using namespace ftxui;
 
-// ============================================================================
-// Static helpers
-// ============================================================================
-
-std::vector<std::string>
-mruls::splitLine(const std::string &line)
+mruls::mruls(const argparse::ArgumentParser &parser)
+    : m_screen(ScreenInteractive::Fullscreen())
 {
-    std::vector<std::string> tokens;
-    std::istringstream iss(line);
-    std::string tok;
-    while (iss >> tok)
-        tokens.push_back(std::move(tok));
-    return tokens;
-}
+    readArgs(parser);
 
-std::vector<std::vector<std::string>>
-mruls::parseOutput(const std::string &output)
-{
-    std::vector<std::vector<std::string>> rows;
-    std::istringstream stream(output);
-    std::string line;
-    while (std::getline(stream, line))
-    {
-        if (!line.empty())
-            rows.push_back(splitLine(line));
-    }
-    return rows;
-}
-
-std::vector<std::pair<std::string, std::string>>
-mruls::parseKeyValue(const std::string &raw)
-{
-    std::vector<std::pair<std::string, std::string>> result;
-    std::istringstream ss(raw);
-    std::string token;
-    while (ss >> token)
-    {
-        if (auto pos = token.find('='); pos != std::string::npos)
-            result.emplace_back(token.substr(0, pos), token.substr(pos + 1));
-    }
-    return result;
-}
-
-std::string
-mruls::execCommand(const std::string &cmd)
-{
-    std::array<char, 256> buffer;
-    std::string result;
-
-    std::unique_ptr<FILE, int (*)(FILE *)> pipe(popen(cmd.c_str(), "r"),
-                                                pclose);
-    if (!pipe)
-        return {};
-
-    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()))
-        result += buffer.data();
-
-    return result;
-}
-
-// ============================================================================
-// Constructor / Destructor
-// ============================================================================
-
-mruls::mruls() : m_screen(ScreenInteractive::Fullscreen())
-{
     m_raw_output = execCommand(SQUEUE_CMD);
     initUI();
 
@@ -134,14 +75,26 @@ mruls::~mruls()
 }
 
 void
+mruls::readArgs(const argparse::ArgumentParser &parser)
+{
+    if (parser.is_used("config"))
+    {
+        if (auto config = parser.get<std::string>("config"); !config.empty())
+            m_config_file_path = std::move(config);
+    }
+}
+
+void
+mruls::initConfig()
+{
+    // Placeholder for future configuration loading logic
+}
+
+void
 mruls::loop()
 {
     m_screen.Loop(m_main_view);
 }
-
-// ============================================================================
-// UI Initialization
-// ============================================================================
 
 void
 mruls::initUI()
@@ -732,4 +685,60 @@ mruls::renderOutput()
         vbox(std::move(elems)) | flex,
         text(" j/k: scroll | gg/G: start/end | e: toggle stdout/stderr ") | dim,
     });
+}
+
+std::vector<std::string>
+mruls::splitLine(const std::string &line)
+{
+    std::vector<std::string> tokens;
+    std::istringstream iss(line);
+    std::string tok;
+    while (iss >> tok)
+        tokens.push_back(std::move(tok));
+    return tokens;
+}
+
+std::vector<std::vector<std::string>>
+mruls::parseOutput(const std::string &output)
+{
+    std::vector<std::vector<std::string>> rows;
+    std::istringstream stream(output);
+    std::string line;
+    while (std::getline(stream, line))
+    {
+        if (!line.empty())
+            rows.push_back(splitLine(line));
+    }
+    return rows;
+}
+
+std::vector<std::pair<std::string, std::string>>
+mruls::parseKeyValue(const std::string &raw)
+{
+    std::vector<std::pair<std::string, std::string>> result;
+    std::istringstream ss(raw);
+    std::string token;
+    while (ss >> token)
+    {
+        if (auto pos = token.find('='); pos != std::string::npos)
+            result.emplace_back(token.substr(0, pos), token.substr(pos + 1));
+    }
+    return result;
+}
+
+std::string
+mruls::execCommand(const std::string &cmd)
+{
+    std::array<char, 256> buffer;
+    std::string result;
+
+    std::unique_ptr<FILE, int (*)(FILE *)> pipe(popen(cmd.c_str(), "r"),
+                                                pclose);
+    if (!pipe)
+        return {};
+
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()))
+        result += buffer.data();
+
+    return result;
 }
