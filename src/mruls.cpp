@@ -735,16 +735,70 @@ mruls::renderDetail()
     });
 }
 
+// ftxui::Element
+// mruls::renderOutput()
+// {
+//     using namespace ftxui;
+//
+//     std::lock_guard lock(m_mutex);
+//
+//     // Split on both \n and \r to handle progress bar output
+//     // Progress bars use \r to overwrite lines, which creates multiple
+//     // "lines" in the raw file that should be displayed separately
+//     std::vector<std::string> lines;
+//     std::string current;
+//     for (char c : m_raw_output)
+//     {
+//         if (c == '\n' || c == '\r')
+//         {
+//             if (!current.empty())
+//             {
+//                 lines.push_back(std::move(current));
+//                 current.clear();
+//             }
+//         }
+//         else
+//         {
+//             current += c;
+//         }
+//     }
+//     if (!current.empty())
+//         lines.push_back(std::move(current));
+//
+//     int total   = static_cast<int>(lines.size());
+//     int visible = m_screen.dimy() - FOOTER_HEIGHT;
+//
+//     m_scroll_y = std::clamp(m_scroll_y, 0, std::max(0, total - visible));
+//
+//     Elements elems;
+//     elems.reserve(visible);
+//
+//     for (int i = m_scroll_y; i < std::min(total, m_scroll_y + visible); ++i)
+//         elems.push_back(text(lines[i]));
+//
+//     const bool is_stdout = (m_output_type == OutputType::STDOUT);
+//     const auto label     = is_stdout ? " STDOUT " : " STDERR ";
+//     const auto bg_color  = is_stdout ? Color::Green : Color::Red;
+//
+//     return vbox({
+//         hbox({
+//             text(label) | bold | bgcolor(bg_color) | color(Color::Black),
+//             filler(),
+//             text(m_output_path) | dim,
+//             text("  [ESC] Back ") | inverted,
+//         }),
+//         separator(),
+//         vbox(std::move(elems)) | flex,
+//         text(" j/k: scroll | gg/G: start/end | e: toggle stdout/stderr ") | dim,
+//     });
+// }
+
 ftxui::Element
 mruls::renderOutput()
 {
     using namespace ftxui;
-
     std::lock_guard lock(m_mutex);
 
-    // Split on both \n and \r to handle progress bar output
-    // Progress bars use \r to overwrite lines, which creates multiple
-    // "lines" in the raw file that should be displayed separately
     std::vector<std::string> lines;
     std::string current;
     for (char c : m_raw_output)
@@ -767,14 +821,24 @@ mruls::renderOutput()
 
     int total   = static_cast<int>(lines.size());
     int visible = m_screen.dimy() - FOOTER_HEIGHT;
+    m_scroll_y  = std::clamp(m_scroll_y, 0, std::max(0, total - visible));
 
-    m_scroll_y = std::clamp(m_scroll_y, 0, std::max(0, total - visible));
+    // Width needed to fit the largest line number
+    const int lnum_width = std::to_string(total).size();
 
     Elements elems;
     elems.reserve(visible);
-
     for (int i = m_scroll_y; i < std::min(total, m_scroll_y + visible); ++i)
-        elems.push_back(text(lines[i]));
+    {
+        elems.push_back(hbox({
+            text(std::to_string(i + 1))
+                | size(WIDTH, EQUAL, lnum_width)
+                | color(Color::GrayDark)
+                | align_right,
+            text(" │ ") | color(Color::GrayDark),
+            text(lines[i]) | flex_grow,
+        }));
+    }
 
     const bool is_stdout = (m_output_type == OutputType::STDOUT);
     const auto label     = is_stdout ? " STDOUT " : " STDERR ";
