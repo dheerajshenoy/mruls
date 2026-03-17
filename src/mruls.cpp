@@ -46,7 +46,8 @@ mruls::mruls(const argparse::ArgumentParser &parser)
                     path = m_output_path;
                 }
                 if (!path.empty())
-                    output = execCommand("tail -n 200 '" + path + "'");
+                    output = readOutputFileTail(path,
+                                                m_config.job_output.max_lines);
             }
 
             if (!output.empty())
@@ -563,9 +564,10 @@ mruls::loadJobOutput(const std::string &job_id)
         std::lock_guard lock(m_mutex);
         m_current_job_id = job_id;
         m_output_path    = std::move(path);
-        m_raw_output     = execCommand("tail -n 200 '" + m_output_path + "'");
-        m_view_type      = ViewType::JOB_OUTPUT;
-        m_scroll_y       = INT_MAX; // Scroll to end, clamped in render
+        m_raw_output
+            = readOutputFileTail(m_output_path, m_config.job_output.max_lines);
+        m_view_type = ViewType::JOB_OUTPUT;
+        m_scroll_y  = INT_MAX; // Scroll to end, clamped in render
     }
 }
 
@@ -586,8 +588,9 @@ mruls::toggleOutputType()
     {
         std::lock_guard lock(m_mutex);
         m_output_path = std::move(path);
-        m_raw_output  = execCommand("tail -n 200 '" + m_output_path + "'");
-        m_scroll_y    = INT_MAX; // Scroll to end, clamped in render
+        m_raw_output
+            = readOutputFileTail(m_output_path, m_config.job_output.max_lines);
+        m_scroll_y = INT_MAX; // Scroll to end, clamped in render
     }
 
     m_screen.PostEvent(ftxui::Event::Custom);
@@ -857,4 +860,30 @@ mruls::execCommand(const std::string &cmd)
         result += buffer.data();
 
     return result;
+}
+
+std::string
+mruls::readOutputFileTail(const std::string &path, int tail_lines) noexcept
+{
+    std::ifstream f(path, std::ios::ate); // open at end
+    if (!f)
+    {
+        return {};
+    }
+
+    std::streamoff size = f.tellg();
+    int newlines_seen   = 0;
+    std::streamoff pos  = size - 1;
+
+    // Walk backwards counting newlines
+    while (pos >= 0 && newlines_seen < tail_lines)
+    {
+        f.seekg(pos--);
+        if (f.get() == '\n')
+            ++newlines_seen;
+    }
+
+    // Read from found position to EOF
+    f.seekg(pos + 2);
+    return std::string(std::istreambuf_iterator<char>(f), {});
 }

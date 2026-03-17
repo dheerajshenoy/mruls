@@ -87,6 +87,8 @@ private:
     void initDefaultConfig();
     void parseConfig() noexcept;
 
+    std::string readOutputFileTail(const std::string &path, int tail_lines) noexcept;
+
 private:
     static constexpr int FOOTER_HEIGHT = 4;
 
