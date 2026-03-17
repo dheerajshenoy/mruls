@@ -876,23 +876,27 @@ mruls::execCommand(const std::string &cmd)
 std::string
 mruls::readOutputFileTail(const std::string &path, int tail_lines) noexcept
 {
-    std::ifstream f(path, std::ios::ate); // open at end
+    std::ifstream f(path, std::ios::ate);
     if (!f)
         return {};
 
     std::streamoff size = f.tellg();
-    int newlines_seen   = 0;
-    std::streamoff pos  = size - 1;
+    if (size == 0)
+        return {};
 
-    // Walk backwards counting newlines
-    while (pos >= 0 && newlines_seen < tail_lines)
+    int newlines_seen  = 0;
+    std::streamoff pos = size - 1;
+
+    while (pos > 0 && newlines_seen < tail_lines)
     {
-        f.seekg(pos--);
+        f.seekg(pos);
         if (f.get() == '\n')
             ++newlines_seen;
+        --pos;
     }
 
-    // Read from found position to EOF
-    f.seekg(pos + 2);
+    // pos == 0 means we hit the start of file — read everything
+    // otherwise land just after the newline we stopped on
+    f.seekg(pos == 0 ? 0 : pos + 2);
     return std::string(std::istreambuf_iterator<char>(f), {});
 }
