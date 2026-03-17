@@ -32,8 +32,6 @@ mruls::mruls(const argparse::ArgumentParser &parser)
         while (m_running)
         {
 
-            refresh();
-
             if (m_view_type == ViewType::JOB_LIST)
             {
                 output = execCommand(m_config.slurm.squeue_cmd);
@@ -61,6 +59,8 @@ mruls::mruls(const argparse::ArgumentParser &parser)
 
             if (m_running)
                 m_screen.PostEvent(ftxui::Event::Custom);
+
+            refresh();
         }
     });
 }
@@ -610,8 +610,8 @@ mruls::toggleOutputType()
         m_scroll_y = INT_MAX;
     }
 
-    m_cv.notify_all(); // wake refresh thread in case it's waiting
     m_screen.PostEvent(ftxui::Event::Custom);
+    m_cv.notify_all(); // wake refresh thread in case it's waiting
 }
 
 // ============================================================================
