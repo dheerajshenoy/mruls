@@ -811,13 +811,17 @@ mruls::renderOutput()
     const auto label     = is_stdout ? " STDOUT " : " STDERR ";
     const auto bg_color  = is_stdout ? Color::Green : Color::Red;
 
+    auto header = hbox({
+        text(label) | bold | bgcolor(bg_color) | color(Color::Black),
+        filler(),
+        text(m_output_path) | dim,
+        text("  [ESC] Back ") | inverted,
+    });
+
+    if (m_raw_output.empty())
+        return vbox({header, separator(), text("Loading...") | center | flex});
+
     return vbox({
-        hbox({
-            text(label) | bold | bgcolor(bg_color) | color(Color::Black),
-            filler(),
-            text(m_output_path) | dim,
-            text("  [ESC] Back ") | inverted,
-        }),
         separator(),
         vbox(std::move(elems)) | flex,
         text(" j/k: scroll | gg/G: start/end | e: toggle stdout/stderr ") | dim,
