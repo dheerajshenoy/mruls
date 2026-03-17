@@ -575,17 +575,20 @@ mruls::loadJobOutput(const std::string &job_id)
     if (path.empty())
         return;
 
-    std::lock_guard lock(m_mutex);
-    m_current_job_id = job_id;
-    m_stdout_path    = std::move(stdout_path);
-    m_stderr_path    = std::move(stderr_path);
-    m_output_path    = path; // points into the moved-from, set explicitly
-    m_output_path
-        = (m_output_type == OutputType::STDOUT) ? m_stdout_path : m_stderr_path;
-    m_raw_output
-        = readOutputFileTail(m_output_path, m_config.job_output.max_lines);
-    m_view_type = ViewType::JOB_OUTPUT;
-    m_scroll_y  = INT_MAX;
+    {
+        std::lock_guard lock(m_mutex);
+        m_current_job_id = job_id;
+        m_stdout_path    = std::move(stdout_path);
+        m_stderr_path    = std::move(stderr_path);
+        m_output_path = (m_output_type == OutputType::STDOUT) ? m_stdout_path
+                                                              : m_stderr_path;
+        m_raw_output.clear();
+        m_view_type = ViewType::JOB_OUTPUT;
+        m_scroll_y  = INT_MAX;
+    }
+
+    m_cv.notify_all();
+    m_screen.PostEvent(ftxui::Event::Custom);
 }
 
 void
@@ -594,16 +597,20 @@ mruls::toggleOutputType()
     m_output_type = (m_output_type == OutputType::STDOUT) ? OutputType::STDERR
                                                           : OutputType::STDOUT;
 
-    std::lock_guard lock(m_mutex);
-    const auto &path
-        = (m_output_type == OutputType::STDOUT) ? m_stdout_path : m_stderr_path;
-    if (path.empty())
-        return;
+    {
+        std::lock_guard lock(m_mutex);
+        const auto &path = (m_output_type == OutputType::STDOUT)
+                               ? m_stdout_path
+                               : m_stderr_path;
+        if (path.empty())
+            return;
 
-    m_output_path = path;
-    m_raw_output
-        = readOutputFileTail(m_output_path, m_config.job_output.max_lines);
-    m_scroll_y = INT_MAX;
+        m_output_path = path;
+        m_raw_output.clear();
+        m_scroll_y = INT_MAX;
+    }
+
+    m_cv.notify_all(); // wake refresh thread in case it's waiting
     m_screen.PostEvent(ftxui::Event::Custom);
 }
 
