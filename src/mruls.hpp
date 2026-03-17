@@ -123,6 +123,8 @@ private:
     // Output view state
     std::string m_current_job_id;
     std::string m_output_path;
+    std::string m_stdout_path;
+    std::string m_stderr_path;
     OutputType m_output_type{OutputType::STDOUT};
 
     // Configuration

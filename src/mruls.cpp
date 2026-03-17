@@ -558,17 +558,34 @@ mruls::getJobOutputPath(const std::string &job_id, OutputType type)
 void
 mruls::loadJobOutput(const std::string &job_id)
 {
-    auto path = getJobOutputPath(job_id, m_output_type);
-    if (!path.empty())
+    auto raw  = execCommand("scontrol show job " + job_id);
+    auto rows = parseKeyValue(raw);
+
+    std::string stdout_path, stderr_path;
+    for (const auto &[k, v] : rows)
     {
-        std::lock_guard lock(m_mutex);
-        m_current_job_id = job_id;
-        m_output_path    = std::move(path);
-        m_raw_output
-            = readOutputFileTail(m_output_path, m_config.job_output.max_lines);
-        m_view_type = ViewType::JOB_OUTPUT;
-        m_scroll_y  = INT_MAX; // Scroll to end, clamped in render
+        if (k == "StdOut")
+            stdout_path = v;
+        if (k == "StdErr")
+            stderr_path = v;
     }
+
+    const auto &path
+        = (m_output_type == OutputType::STDOUT) ? stdout_path : stderr_path;
+    if (path.empty())
+        return;
+
+    std::lock_guard lock(m_mutex);
+    m_current_job_id = job_id;
+    m_stdout_path    = std::move(stdout_path);
+    m_stderr_path    = std::move(stderr_path);
+    m_output_path    = path; // points into the moved-from, set explicitly
+    m_output_path
+        = (m_output_type == OutputType::STDOUT) ? m_stdout_path : m_stderr_path;
+    m_raw_output
+        = readOutputFileTail(m_output_path, m_config.job_output.max_lines);
+    m_view_type = ViewType::JOB_OUTPUT;
+    m_scroll_y  = INT_MAX;
 }
 
 void
@@ -577,22 +594,16 @@ mruls::toggleOutputType()
     m_output_type = (m_output_type == OutputType::STDOUT) ? OutputType::STDERR
                                                           : OutputType::STDOUT;
 
-    std::string job_id;
-    {
-        std::lock_guard lock(m_mutex);
-        job_id = m_current_job_id;
-    }
+    std::lock_guard lock(m_mutex);
+    const auto &path
+        = (m_output_type == OutputType::STDOUT) ? m_stdout_path : m_stderr_path;
+    if (path.empty())
+        return;
 
-    auto path = getJobOutputPath(job_id, m_output_type);
-    if (!path.empty())
-    {
-        std::lock_guard lock(m_mutex);
-        m_output_path = std::move(path);
-        m_raw_output
-            = readOutputFileTail(m_output_path, m_config.job_output.max_lines);
-        m_scroll_y = INT_MAX; // Scroll to end, clamped in render
-    }
-
+    m_output_path = path;
+    m_raw_output
+        = readOutputFileTail(m_output_path, m_config.job_output.max_lines);
+    m_scroll_y = INT_MAX;
     m_screen.PostEvent(ftxui::Event::Custom);
 }
 
@@ -867,9 +878,7 @@ mruls::readOutputFileTail(const std::string &path, int tail_lines) noexcept
 {
     std::ifstream f(path, std::ios::ate); // open at end
     if (!f)
-    {
         return {};
-    }
 
     std::streamoff size = f.tellg();
     int newlines_seen   = 0;
