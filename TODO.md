@@ -1,0 +1,3 @@
+- Allow runtime num lines to be set by user input for job output
+- Cancel jobs
+- Modal dialog for asking to confirm
