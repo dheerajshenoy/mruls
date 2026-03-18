@@ -232,17 +232,31 @@ mruls::initUI()
 {
     auto renderer = ftxui::Renderer([this]
     {
+        ftxui::Element base_view;
+
         switch (m_view_type)
         {
             case ViewType::JOB_DETAIL:
-                return renderDetail();
+                base_view = renderDetail();
+                break;
 
             case ViewType::JOB_OUTPUT:
-                return renderOutput();
+                base_view = renderOutput();
+                break;
 
             default:
-                return renderJobList();
+                base_view = renderJobList();
         }
+
+        if (m_showing_modal)
+        {
+            return ftxui::dbox({
+                base_view,
+                m_modal,
+            });
+        }
+
+        return base_view;
     });
 
     m_main_view = CatchEvent(renderer,
@@ -1129,14 +1143,14 @@ mruls::waitForFileChange() noexcept
         }
         else
         {
-            // If inotify failed to initialize, sleep manually to prevent CPU
-            // pegging
+            // If inotify failed to initialize, sleep manually to prevent
+            // CPU pegging
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
         }
 
-        // --- Strategy B: stat() Polling (Reliable for NFS/Lustre/Clusters) ---
-        // Network file systems often don't trigger inotify events across nodes.
-        // We manually check if the file size has grown.
+        // --- Strategy B: stat() Polling (Reliable for NFS/Lustre/Clusters)
+        // --- Network file systems often don't trigger inotify events
+        // across nodes. We manually check if the file size has grown.
         if (stat(path.c_str(), &st) == 0)
         {
             if (st.st_size != last_size)
@@ -1156,8 +1170,8 @@ mruls::waitForFileChange() noexcept
             }
         }
 
-        // Check if the output path changed while we were waiting (e.g., toggled
-        // StdErr)
+        // Check if the output path changed while we were waiting (e.g.,
+        // toggled StdErr)
         {
             std::lock_guard lock(m_mutex);
             if (m_output_path != path)
