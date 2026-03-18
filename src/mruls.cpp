@@ -451,6 +451,8 @@ mruls::navBegin()
     {
         std::lock_guard lock(m_mutex);
         m_scroll_y = 0;
+        if (m_config.job_output.auto_scroll)
+            m_auto_scrolling = false;
     }
     else
     {
@@ -614,6 +616,9 @@ mruls::loadJobOutput(const std::string &job_id)
     if (path.empty())
         return;
 
+    // do initial read BEFORE setting view type so first render has content
+    auto initial = readOutputFileTail(path, m_config.job_output.max_lines);
+
     {
         std::lock_guard lock(m_mutex);
         m_current_job_id = job_id;
@@ -621,7 +626,7 @@ mruls::loadJobOutput(const std::string &job_id)
         m_stderr_path    = std::move(stderr_path);
         m_output_path = (m_output_type == OutputType::STDOUT) ? m_stdout_path
             : m_stderr_path;
-        m_raw_output.clear();
+        m_raw_output = std::move(initial);
         m_view_type = ViewType::JOB_OUTPUT;
         m_scroll_y  = INT_MAX;
     }
@@ -632,29 +637,34 @@ mruls::loadJobOutput(const std::string &job_id)
     m_screen.PostEvent(ftxui::Event::Custom);
 }
 
-    void
+void
 mruls::toggleOutputType()
 {
-    m_output_type = (m_output_type == OutputType::STDOUT) ? OutputType::STDERR
-        : OutputType::STDOUT;
+    m_output_type = (m_output_type == OutputType::STDOUT)
+                        ? OutputType::STDERR : OutputType::STDOUT;
+
+    std::string new_path;
+    {
+        std::lock_guard lock(m_mutex);
+        new_path = (m_output_type == OutputType::STDOUT)
+                       ? m_stdout_path : m_stderr_path;
+        if (new_path.empty())
+            return;
+        m_output_path = new_path;
+    }
+
+    // read before updating m_raw_output
+    auto initial = readOutputFileTail(new_path, m_config.job_output.max_lines);
 
     {
         std::lock_guard lock(m_mutex);
-        const auto &path = (m_output_type == OutputType::STDOUT)
-            ? m_stdout_path
-            : m_stderr_path;
-        if (path.empty())
-            return;
-
-        m_output_path = path;
-        m_raw_output.clear();
-        m_scroll_y = INT_MAX;
+        m_raw_output = std::move(initial);  // ← pre-populate
+        m_scroll_y   = INT_MAX;
     }
 
-    setupInotify(m_output_path);
-
+    setupInotify(new_path);
     m_screen.PostEvent(ftxui::Event::Custom);
-    m_cv.notify_all(); // wake refresh thread in case it's waiting
+    m_cv.notify_all();
 }
 
 // ============================================================================
@@ -876,7 +886,7 @@ mruls::renderOutput()
             });
 
     if (m_raw_output.empty())
-        return vbox({header, separator(), text("Loading...") | center | flex});
+        return vbox({header, separator()});
 
     return vbox({
             header,
@@ -943,31 +953,82 @@ mruls::execCommand(const std::string &cmd)
 }
 
 std::string
-mruls::readOutputFileTail(const std::string &path, int tail_lines) noexcept
+mruls::readOutputFileTail(const std::string &path, int max_lines) noexcept
 {
-    std::ifstream f(path, std::ios::ate);
-    if (!f)
-        return {};
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) return {};
 
-    std::streamoff size = f.tellg();
-    if (size == 0)
-        return {};
+    const std::streamoff file_size = f.tellg();
+    if (file_size == 0) return {};
 
-    int newlines_seen  = 0;
-    std::streamoff pos = size - 1;
+    const std::streamoff CHUNK_SIZE = 4096;
+    int lines_found = 0;
+    std::streamoff current_pos = file_size;
+    std::string buffer;
+    buffer.reserve(CHUNK_SIZE);
+    bool start_found = false;
+    std::streamoff final_start_pos = 0;
 
-    while (pos > 0 && newlines_seen < tail_lines)
+    while (current_pos > 0 && !start_found)
     {
-        f.seekg(pos);
-        if (f.get() == '\n')
-            ++newlines_seen;
-        --pos;
+        std::streamoff read_size = std::min(current_pos, CHUNK_SIZE);
+        current_pos -= read_size;
+
+        f.seekg(current_pos);
+        buffer.resize(static_cast<size_t>(read_size));
+        f.read(buffer.data(), read_size);
+
+        for (auto i = static_cast<ssize_t>(read_size - 1); i >= 0; --i)
+        {
+            if (buffer[i] == '\n')
+            {
+                ++lines_found;
+                if (lines_found > max_lines)
+                {
+                    final_start_pos = current_pos + i + 1;
+                    start_found     = true;
+                    break;
+                }
+            }
+        }
     }
 
-    // pos == 0 means we hit the start of file — read everything
-    // otherwise land just after the newline we stopped on
-    f.seekg(pos == 0 ? 0 : pos + 2);
-    return std::string(std::istreambuf_iterator<char>(f), {});
+    f.seekg(start_found ? final_start_pos : 0);
+
+    std::string result;
+    std::string current_line;
+    char c;
+
+    while (f.get(c))
+    {
+        if (c == '\n')
+        {
+            if (!current_line.empty())
+            {
+                result += current_line;
+                result += '\n';
+            }
+            current_line.clear();
+        }
+        else if (c == '\r')
+        {
+            // overwrite current line (tqdm behavior)
+            current_line.clear();
+        }
+        else
+        {
+            current_line += c;
+        }
+    }
+
+    // flush last line
+    if (!current_line.empty())
+    {
+        result += current_line;
+        result += '\n';
+    }
+
+    return result;
 }
 
 void
@@ -1064,8 +1125,18 @@ mruls::waitForFileChange() noexcept
         {
             if (st.st_size != last_size)
             {
-                // File size changed (or truncated), time to refresh
-                return;
+                off_t new_size = st.st_size;
+
+                // wait briefly to let writer finish (tqdm writes in bursts)
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+                struct stat st2;
+                if (stat(path.c_str(), &st2) == 0 && st2.st_size == new_size)
+                {
+                    return; // stable -> safe to read
+                }
+
+                last_size = new_size;
             }
         }
 
