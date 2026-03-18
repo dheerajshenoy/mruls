@@ -56,6 +56,8 @@ private:
     void toggleOutputType();
     std::string getJobOutputPath(const std::string &job_id, OutputType type);
 
+    void cancelJob() noexcept;
+
     // Parsing
     static std::vector<std::string> splitLine(const std::string &line);
     static std::vector<std::vector<std::string>>
@@ -138,6 +140,7 @@ private:
     std::string m_watched_path; // path being watched for output changes
 
     bool m_auto_scrolling{false};
+    bool m_showing_modal{false};
 
     // Configuration
     std::string m_config_file_path;
