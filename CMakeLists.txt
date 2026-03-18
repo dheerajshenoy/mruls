@@ -16,7 +16,9 @@ FetchContent_MakeAvailable(ftxui)
 add_executable(${PROJECT_NAME}
     src/main.cpp
     src/mruls.cpp
+    src/utils.cpp
 
+    src/utils.hpp
     src/mruls.hpp)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
