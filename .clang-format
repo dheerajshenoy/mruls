@@ -24,6 +24,7 @@ Cpp11BracedListStyle: true
 
 AllowShortLambdasOnASingleLine: Inline
 LambdaBodyIndentation: OuterScope
+NamespaceIndentation: All
 SpacesInAngles: false
 SpaceBeforeParens: ControlStatements
 AccessModifierOffset: -4
