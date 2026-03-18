@@ -29,15 +29,21 @@ public:
 private:
     enum class ViewType
     {
-        JOB_LIST,
+        JOB_LIST = 0,
         JOB_DETAIL,
         JOB_OUTPUT,
     };
 
     enum class OutputType
     {
-        STDOUT,
+        STDOUT = 0,
         STDERR,
+    };
+
+    enum class ModalType
+    {
+        NONE = 0,
+        CONFIRM_CANCEL,
     };
 
     // Initialization
@@ -140,10 +146,12 @@ private:
     std::string m_watched_path; // path being watched for output changes
 
     bool m_auto_scrolling{false};
-    bool m_showing_modal{false};
     ftxui::Element m_modal;
 
     // Configuration
     std::string m_config_file_path;
     Config m_config;
+
+    ModalType m_active_modal_type{ModalType::NONE};
+    std::string m_active_modal_message;
 };

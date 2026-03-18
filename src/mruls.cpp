@@ -248,12 +248,29 @@ mruls::initUI()
                 base_view = renderJobList();
         }
 
-        if (m_showing_modal)
+        if (m_active_modal_type == ModalType::NONE)
         {
-            return ftxui::dbox({
-                base_view,
-                m_modal,
-            });
+            return base_view;
+        }
+
+        Element modal_element;
+
+        switch (m_active_modal_type)
+        {
+            case ModalType::CONFIRM_CANCEL:
+                modal_element = utils::renderModal(
+                    " SCANCEL ", "Cancel job " + m_current_job_id + "? [y/N]");
+                break;
+            case ModalType::HELP:
+                modal_element = utils::renderModal(
+                    " HELP ",
+                    "j/k: Scroll | Enter: Output | i: Detail | c: Cancel");
+                break;
+            case ModalType::utils::ERROR_MESSAGE:
+                modal_element = renderModal(" ERROR ", m_modal_message);
+                break;
+            default:
+                return base_view;
         }
 
         return base_view;
@@ -270,6 +287,26 @@ mruls::initUI()
 bool
 mruls::handleEvent(ftxui::Event event)
 {
+    // If modal is showing, only handle Modal-specific keys
+    if (m_showing_modal)
+    {
+        if (event == ftxui::Event::Escape
+            || event == ftxui::Event::Character("n")
+            || event == ftxui::Event::Character("N"))
+        {
+            m_showing_modal = false;
+            return true;
+        }
+        if (event == ftxui::Event::Character("y")
+            || event == ftxui::Event::Character("Y"))
+        {
+            // TODO: call scancel logic here
+            m_showing_modal = false;
+            return true;
+        }
+        return true; // Consume all other keys so background doesn't move
+    }
+
     // ESC - go back from detail/output views
     if (event == ftxui::Event::Escape)
     {
@@ -1180,42 +1217,9 @@ mruls::waitForFileChange() noexcept
     }
 }
 
-using namespace ftxui;
-
-// ── simple modal renderer ─────────────────────────────────────────────
-static Element
-renderModal(const std::string &title, const std::string &message)
-{
-    return dbox({
-        // dim background
-        vbox({}) | flex | bgcolor(Color::Black) | dim,
-
-        // centered dialog box
-        vbox({
-            hbox({
-                text(" " + title + " ") | bold | bgcolor(Color::Blue)
-                    | color(Color::White),
-                filler(),
-            }),
-            separator(),
-            text("  " + message + "  ") | flex,
-            separator(),
-            hbox({
-                filler(),
-                text(" [ESC] Close ") | inverted,
-                text("  "),
-            }),
-        }) | border
-            | size(WIDTH, EQUAL, 50) | size(HEIGHT, EQUAL, 10)
-            | clear_under // clears background behind the box
-            | center,     // centers in terminal
-    });
-}
-
 void
 mruls::cancelJob() noexcept
 {
+    std::lock_guard lock(m_mutex);
     m_showing_modal = true;
-    m_modal         = utils::renderModal(
-        "Cancel Job", "Are you sure you want to cancel this job? [y/N]");
 }
