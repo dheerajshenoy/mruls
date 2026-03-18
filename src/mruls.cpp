@@ -2,6 +2,7 @@
 
 #include "argparse.hpp"
 #include "toml.hpp"
+#include "utils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -29,27 +30,28 @@ mruls::mruls(const argparse::ArgumentParser &parser)
 
     // Background refresh thread
     m_refresh_thread = std::thread([this]
-            {
-            std::string output;
+    {
+        std::string output;
 
-            while (m_running)
-            {
+        while (m_running)
+        {
             if (m_view_type == ViewType::JOB_LIST)
             {
-            output = execCommand(m_config.slurm.squeue_cmd);
+                output = execCommand(m_config.slurm.squeue_cmd);
 
-            if (!output.empty())
-            {
-            std::lock_guard lock(m_mutex);
-            if (!m_running) return;
-            m_raw_output = std::move(output);
-            m_dirty      = true;
-            }
+                if (!output.empty())
+                {
+                    std::lock_guard lock(m_mutex);
+                    if (!m_running)
+                        return;
+                    m_raw_output = std::move(output);
+                    m_dirty      = true;
+                }
 
-            if (m_running)
-            m_screen.PostEvent(ftxui::Event::Custom);
+                if (m_running)
+                    m_screen.PostEvent(ftxui::Event::Custom);
 
-            refresh(); // wait with interval
+                refresh(); // wait with interval
             }
             else if (m_view_type == ViewType::JOB_OUTPUT)
             {
@@ -63,15 +65,17 @@ mruls::mruls(const argparse::ArgumentParser &parser)
                 {
                     std::unique_lock lock(m_mutex);
                     m_cv.wait_for(lock, std::chrono::milliseconds(100),
-                            [this] { return !m_running.load(); });
+                                  [this] { return !m_running.load(); });
                     continue;
                 }
 
-                output = readOutputFileTail(path, m_config.job_output.max_lines);
+                output
+                    = readOutputFileTail(path, m_config.job_output.max_lines);
                 if (!output.empty())
                 {
                     std::lock_guard lock(m_mutex);
-                    if (!m_running) return;
+                    if (!m_running)
+                        return;
                     m_raw_output = std::move(output);
                     m_dirty      = true;
                 }
@@ -84,8 +88,8 @@ mruls::mruls(const argparse::ArgumentParser &parser)
             {
                 refresh(); // JOB_DETAIL still uses interval
             }
-            }
-            });
+        }
+    });
 }
 
 mruls::~mruls()
@@ -109,12 +113,12 @@ mruls::refresh() noexcept
     {
         case ViewType::JOB_LIST:
             time = std::chrono::duration<float>(
-                    m_config.job_list.refresh_interval);
+                m_config.job_list.refresh_interval);
             break;
 
         case ViewType::JOB_DETAIL:
             time = std::chrono::duration<float>(
-                    m_config.job_detail.refresh_interval);
+                m_config.job_detail.refresh_interval);
             break;
 
         case ViewType::JOB_OUTPUT:
@@ -130,7 +134,7 @@ mruls::refresh() noexcept
         return;
 }
 
-    void
+void
 mruls::readArgs(const argparse::ArgumentParser &parser)
 {
     if (parser.is_used("config"))
@@ -146,13 +150,13 @@ mruls::readArgs(const argparse::ArgumentParser &parser)
     }
 }
 
-    void
+void
 mruls::initDefaultConfig()
 {
     // No configuration for now, but this is where defaults would be set
 }
 
-    void
+void
 mruls::initConfig()
 {
     if (m_config_file_path.empty())
@@ -195,15 +199,16 @@ mruls::parseConfig() noexcept
     if (auto job_output = toml["job_output"])
     {
         if (auto show_line_numbers
-                = job_output["show_line_numbers"].value<bool>())
+            = job_output["show_line_numbers"].value<bool>())
             m_config.job_output.show_line_numbers = *show_line_numbers;
 
         if (auto max_lines = job_output["max_lines"].value<int>())
             m_config.job_output.max_lines = *max_lines;
 
-        if (auto auto_scroll = job_output["auto_scroll"].value<bool>()) {
+        if (auto auto_scroll = job_output["auto_scroll"].value<bool>())
+        {
             m_config.job_output.auto_scroll = *auto_scroll;
-            m_auto_scrolling = *auto_scroll;
+            m_auto_scrolling                = *auto_scroll;
         }
     }
 
@@ -216,39 +221,39 @@ mruls::parseConfig() noexcept
     }
 }
 
-    void
+void
 mruls::loop()
 {
     m_screen.Loop(m_main_view);
 }
 
-    void
+void
 mruls::initUI()
 {
     auto renderer = ftxui::Renderer([this]
-            {
-            switch (m_view_type)
-            {
+    {
+        switch (m_view_type)
+        {
             case ViewType::JOB_DETAIL:
-            return renderDetail();
+                return renderDetail();
 
             case ViewType::JOB_OUTPUT:
-            return renderOutput();
+                return renderOutput();
 
             default:
-            return renderJobList();
-            }
-            });
+                return renderJobList();
+        }
+    });
 
     m_main_view = CatchEvent(renderer,
-            [this](ftxui::Event e) { return handleEvent(e); });
+                             [this](ftxui::Event e) { return handleEvent(e); });
 }
 
 // ============================================================================
 // Event Handling
 // ============================================================================
 
-    bool
+bool
 mruls::handleEvent(ftxui::Event event)
 {
     // ESC - go back from detail/output views
@@ -264,7 +269,7 @@ mruls::handleEvent(ftxui::Event event)
 
     // Keyboard navigation
     if (event == ftxui::Event::ArrowDown
-            || event == ftxui::Event::Character("j"))
+        || event == ftxui::Event::Character("j"))
     {
         if (m_key_buffer.empty())
         {
@@ -356,7 +361,7 @@ mruls::handleEvent(ftxui::Event event)
     return false;
 }
 
-    bool
+bool
 mruls::handleKeySequence(const std::string &ch)
 {
     m_key_buffer += ch;
@@ -386,7 +391,7 @@ mruls::handleKeySequence(const std::string &ch)
 // Navigation
 // ============================================================================
 
-    void
+void
 mruls::navUp()
 {
     if (m_view_type == ViewType::JOB_OUTPUT)
@@ -411,7 +416,7 @@ mruls::navUp()
     m_screen.PostEvent(ftxui::Event::Custom);
 }
 
-    void
+void
 mruls::navDown()
 {
     if (m_view_type == ViewType::JOB_OUTPUT)
@@ -438,7 +443,7 @@ mruls::navDown()
     m_screen.PostEvent(ftxui::Event::Custom);
 }
 
-    void
+void
 mruls::navBegin()
 {
     if (m_view_type == ViewType::JOB_DETAIL)
@@ -488,7 +493,7 @@ mruls::navEnd()
     m_screen.PostEvent(ftxui::Event::Custom);
 }
 
-    void
+void
 mruls::selectJob()
 {
     int count = getRowCount();
@@ -506,7 +511,7 @@ mruls::selectJob()
     }
 }
 
-    void
+void
 mruls::goBack()
 {
     m_key_buffer.clear();
@@ -524,7 +529,7 @@ mruls::goBack()
     m_screen.PostEvent(ftxui::Event::Custom);
 }
 
-    void
+void
 mruls::quit()
 {
     m_screen.ExitLoopClosure()();
@@ -541,7 +546,7 @@ mruls::getRowCount() const
 // Data Fetching
 // ============================================================================
 
-    void
+void
 mruls::fetchJobDetail(const std::string &job_id)
 {
     // Wait for any pending detail fetch to complete
@@ -551,25 +556,25 @@ mruls::fetchJobDetail(const std::string &job_id)
     m_detail_pending = true;
 
     m_detail_thread = std::thread([this, job_id]
-            {
-            auto result = execCommand("scontrol show job " + job_id);
-            auto parsed = parseKeyValue(
-                    result.empty() ? "Error=No details found for Job " + job_id
-                    : result);
+    {
+        auto result = execCommand("scontrol show job " + job_id);
+        auto parsed = parseKeyValue(
+            result.empty() ? "Error=No details found for Job " + job_id
+                           : result);
 
-            {
+        {
             std::lock_guard lock(m_mutex);
             m_detail_rows     = std::move(parsed);
             m_detail_selected = 0;
             m_scroll_y        = 0;
-            }
+        }
 
-            m_detail_pending = false;
-            m_screen.PostEvent(ftxui::Event::Custom);
-            });
+        m_detail_pending = false;
+        m_screen.PostEvent(ftxui::Event::Custom);
+    });
 }
 
-    void
+void
 mruls::refreshJobList()
 {
     auto output = execCommand(m_config.slurm.squeue_cmd);
@@ -581,7 +586,7 @@ mruls::refreshJobList()
     m_screen.PostEvent(ftxui::Event::Custom);
 }
 
-    std::string
+std::string
 mruls::getJobOutputPath(const std::string &job_id, OutputType type)
 {
     auto raw        = execCommand("scontrol show job " + job_id);
@@ -596,7 +601,7 @@ mruls::getJobOutputPath(const std::string &job_id, OutputType type)
     return {};
 }
 
-    void
+void
 mruls::loadJobOutput(const std::string &job_id)
 {
     auto raw  = execCommand("scontrol show job " + job_id);
@@ -625,10 +630,10 @@ mruls::loadJobOutput(const std::string &job_id)
         m_stdout_path    = std::move(stdout_path);
         m_stderr_path    = std::move(stderr_path);
         m_output_path = (m_output_type == OutputType::STDOUT) ? m_stdout_path
-            : m_stderr_path;
-        m_raw_output = std::move(initial);
-        m_view_type = ViewType::JOB_OUTPUT;
-        m_scroll_y  = INT_MAX;
+                                                              : m_stderr_path;
+        m_raw_output  = std::move(initial);
+        m_view_type   = ViewType::JOB_OUTPUT;
+        m_scroll_y    = INT_MAX;
     }
 
     setupInotify(m_output_path);
@@ -640,14 +645,14 @@ mruls::loadJobOutput(const std::string &job_id)
 void
 mruls::toggleOutputType()
 {
-    m_output_type = (m_output_type == OutputType::STDOUT)
-                        ? OutputType::STDERR : OutputType::STDOUT;
+    m_output_type = (m_output_type == OutputType::STDOUT) ? OutputType::STDERR
+                                                          : OutputType::STDOUT;
 
     std::string new_path;
     {
         std::lock_guard lock(m_mutex);
-        new_path = (m_output_type == OutputType::STDOUT)
-                       ? m_stdout_path : m_stderr_path;
+        new_path = (m_output_type == OutputType::STDOUT) ? m_stdout_path
+                                                         : m_stderr_path;
         if (new_path.empty())
             return;
         m_output_path = new_path;
@@ -658,7 +663,7 @@ mruls::toggleOutputType()
 
     {
         std::lock_guard lock(m_mutex);
-        m_raw_output = std::move(initial);  // ← pre-populate
+        m_raw_output = std::move(initial); // ← pre-populate
         m_scroll_y   = INT_MAX;
     }
 
@@ -671,7 +676,7 @@ mruls::toggleOutputType()
 // Rendering
 // ============================================================================
 
-    ftxui::Element
+ftxui::Element
 mruls::renderJobList()
 {
     std::lock_guard lock(m_mutex);
@@ -702,7 +707,7 @@ mruls::renderJobList()
             for (size_t c = 0; c < m_job_rows[r].size(); ++c)
                 m_col_widths[c + 1]
                     = std::max(m_col_widths[c + 1],
-                            static_cast<int>(m_job_rows[r][c].size()));
+                               static_cast<int>(m_job_rows[r][c].size()));
         }
     }
 
@@ -723,17 +728,17 @@ mruls::renderJobList()
         // Index column
         auto idx = (i == 0) ? "#" : std::to_string(i);
         cells.push_back(
-                ftxui::text(idx)
-                | size(ftxui::WIDTH, ftxui::EQUAL, m_col_widths[0] + 2));
+            ftxui::text(idx)
+            | size(ftxui::WIDTH, ftxui::EQUAL, m_col_widths[0] + 2));
 
         // Data columns
         for (size_t c = 0; c < m_job_rows[i].size(); ++c)
         {
             auto cell = (c == m_job_rows[i].size() - 1)
-                ? ftxui::text(m_job_rows[i][c]) | ftxui::flex_grow
-                : ftxui::text(m_job_rows[i][c])
-                | size(ftxui::WIDTH, ftxui::EQUAL,
-                        m_col_widths[c + 1] + 2);
+                            ? ftxui::text(m_job_rows[i][c]) | ftxui::flex_grow
+                            : ftxui::text(m_job_rows[i][c])
+                                  | size(ftxui::WIDTH, ftxui::EQUAL,
+                                         m_col_widths[c + 1] + 2);
             cells.push_back(std::move(cell));
         }
 
@@ -743,7 +748,7 @@ mruls::renderJobList()
             row = row | ftxui::bold;
         else if (i == m_selected)
             row = row | bgcolor(ftxui::Color::Blue) | color(ftxui::Color::White)
-                | ftxui::bold;
+                  | ftxui::bold;
 
         rows.push_back(std::move(row));
 
@@ -752,13 +757,13 @@ mruls::renderJobList()
     }
 
     return ftxui::vbox({
-            ftxui::text("MRULS") | ftxui::center | ftxui::bold
+        ftxui::text("MRULS") | ftxui::center | ftxui::bold
             | color(ftxui::Color::Blue),
-            vbox(std::move(rows)) | ftxui::flex,
-            });
+        vbox(std::move(rows)) | ftxui::flex,
+    });
 }
 
-    ftxui::Element
+ftxui::Element
 mruls::renderDetail()
 {
     using namespace ftxui;
@@ -785,31 +790,31 @@ mruls::renderDetail()
     {
         const auto &[key, val] = m_detail_rows[i];
         Element line           = hbox({
-                text(key) | size(WIDTH, EQUAL, 25) | color(Color::Cyan),
-                text(val) | flex_grow,
-                });
+            text(key) | size(WIDTH, EQUAL, 25) | color(Color::Cyan),
+            text(val) | flex_grow,
+        });
         if (i == m_detail_selected)
             line = line | bgcolor(Color::Blue) | color(Color::White);
         elems.push_back(std::move(line));
     }
 
     return vbox({
-            hbox({
-                    text(" JOB INSPECTOR ") | bold | bgcolor(Color::Blue)
-                    | color(Color::White),
-                    filler(),
-                    text(std::to_string(m_detail_selected + 1) + "/"
-                            + std::to_string(total))
-                    | dim,
-                    text("  [ESC] Back ") | inverted,
-                    }),
-            separator(),
-            vbox(std::move(elems)) | flex,
-            text(" j/k/arrows: scroll | gg/G: start/end ") | dim,
-            });
+        hbox({
+            text(" JOB INSPECTOR ") | bold | bgcolor(Color::Blue)
+                | color(Color::White),
+            filler(),
+            text(std::to_string(m_detail_selected + 1) + "/"
+                 + std::to_string(total))
+                | dim,
+            text("  [ESC] Back ") | inverted,
+        }),
+        separator(),
+        vbox(std::move(elems)) | flex,
+        text(" j/k/arrows: scroll | gg/G: start/end ") | dim,
+    });
 }
 
-    ftxui::Element
+ftxui::Element
 mruls::renderOutput()
 {
     using namespace ftxui;
@@ -836,40 +841,47 @@ mruls::renderOutput()
         lines.push_back(std::move(current));
 
     int total_lines = static_cast<int>(lines.size());
-    int visible_h = m_screen.dimy() - FOOTER_HEIGHT;
+    int visible_h   = m_screen.dimy() - FOOTER_HEIGHT;
     int max_scroll  = std::max(0, total_lines - visible_h);
 
-    if (m_config.job_output.auto_scroll) {
+    if (m_config.job_output.auto_scroll)
+    {
 
-        if (m_auto_scrolling) {
+        if (m_auto_scrolling)
+        {
             m_scroll_y = max_scroll;
-        } else {
+        }
+        else
+        {
             m_scroll_y = std::clamp(m_scroll_y, 0, max_scroll);
-            if (m_scroll_y >= max_scroll && total_lines > 0) {
+            if (m_scroll_y >= max_scroll && total_lines > 0)
+            {
                 m_auto_scrolling = true;
             }
         }
-    } else {
+    }
+    else
+    {
         m_scroll_y = std::clamp(m_scroll_y, 0, max_scroll);
     }
-
 
     Elements elems;
     // Width needed to fit the largest line number
     const int lnum_width = std::to_string(total_lines).size();
     elems.reserve(visible_h);
 
-    for (int i = m_scroll_y; i < std::min(total_lines, m_scroll_y + visible_h); ++i)
+    for (int i = m_scroll_y; i < std::min(total_lines, m_scroll_y + visible_h);
+         ++i)
     {
         Element line = text(lines[i]) | flex_grow;
 
         if (m_config.job_output.show_line_numbers)
             line = hbox({
-                    text(std::to_string(i + 1)) | size(WIDTH, EQUAL, lnum_width)
+                text(std::to_string(i + 1)) | size(WIDTH, EQUAL, lnum_width)
                     | color(Color::GrayDark) | align_right,
-                    text(" │ ") | color(Color::GrayDark),
-                    std::move(line),
-                    });
+                text(" │ ") | color(Color::GrayDark),
+                std::move(line),
+            });
 
         elems.push_back(std::move(line));
     }
@@ -879,24 +891,24 @@ mruls::renderOutput()
     const auto bg_color  = is_stdout ? Color::Green : Color::Red;
 
     auto header = hbox({
-            text(label) | bold | bgcolor(bg_color) | color(Color::Black),
-            filler(),
-            text(m_output_path) | dim,
-            text("  [ESC] Back ") | inverted,
-            });
+        text(label) | bold | bgcolor(bg_color) | color(Color::Black),
+        filler(),
+        text(m_output_path) | dim,
+        text("  [ESC] Back ") | inverted,
+    });
 
     if (m_raw_output.empty())
         return vbox({header, separator()});
 
     return vbox({
-            header,
-            separator(),
-            vbox(std::move(elems)) | flex,
-            text(" j/k: scroll | gg/G: start/end | e: toggle stdout/stderr ") | dim,
-            });
+        header,
+        separator(),
+        vbox(std::move(elems)) | flex,
+        text(" j/k: scroll | gg/G: start/end | e: toggle stdout/stderr ") | dim,
+    });
 }
 
-    std::vector<std::string>
+std::vector<std::string>
 mruls::splitLine(const std::string &line)
 {
     std::vector<std::string> tokens;
@@ -907,7 +919,7 @@ mruls::splitLine(const std::string &line)
     return tokens;
 }
 
-    std::vector<std::vector<std::string>>
+std::vector<std::vector<std::string>>
 mruls::parseOutput(const std::string &output)
 {
     std::vector<std::vector<std::string>> rows;
@@ -921,7 +933,7 @@ mruls::parseOutput(const std::string &output)
     return rows;
 }
 
-    std::vector<std::pair<std::string, std::string>>
+std::vector<std::pair<std::string, std::string>>
 mruls::parseKeyValue(const std::string &raw)
 {
     std::vector<std::pair<std::string, std::string>> result;
@@ -935,14 +947,14 @@ mruls::parseKeyValue(const std::string &raw)
     return result;
 }
 
-    std::string
+std::string
 mruls::execCommand(const std::string &cmd)
 {
     std::array<char, 256> buffer;
     std::string result;
 
     std::unique_ptr<FILE, int (*)(FILE *)> pipe(popen(cmd.c_str(), "r"),
-            pclose);
+                                                pclose);
     if (!pipe)
         return {};
 
@@ -956,17 +968,19 @@ std::string
 mruls::readOutputFileTail(const std::string &path, int max_lines) noexcept
 {
     std::ifstream f(path, std::ios::binary | std::ios::ate);
-    if (!f) return {};
+    if (!f)
+        return {};
 
     const std::streamoff file_size = f.tellg();
-    if (file_size == 0) return {};
+    if (file_size == 0)
+        return {};
 
     const std::streamoff CHUNK_SIZE = 4096;
-    int lines_found = 0;
-    std::streamoff current_pos = file_size;
+    int lines_found                 = 0;
+    std::streamoff current_pos      = file_size;
     std::string buffer;
     buffer.reserve(CHUNK_SIZE);
-    bool start_found = false;
+    bool start_found               = false;
     std::streamoff final_start_pos = 0;
 
     while (current_pos > 0 && !start_found)
@@ -1041,7 +1055,7 @@ mruls::setupInotify(const std::string &path) noexcept
         return;
 
     m_inotify_wd = inotify_add_watch(m_inotify_fd, path.c_str(),
-            IN_MODIFY | IN_CLOSE_WRITE);
+                                     IN_MODIFY | IN_CLOSE_WRITE);
     if (m_inotify_wd == -1)
     {
         close(m_inotify_fd);
@@ -1104,7 +1118,8 @@ mruls::waitForFileChange() noexcept
             if (ret > 0 && FD_ISSET(m_inotify_fd, &fds))
             {
                 // Drain inotify events to clear the queue
-                char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+                char buf[4096]
+                    __attribute__((aligned(__alignof__(struct inotify_event))));
                 const struct inotify_event *event;
 
                 ssize_t len = read(m_inotify_fd, buf, sizeof(buf));
@@ -1114,7 +1129,8 @@ mruls::waitForFileChange() noexcept
         }
         else
         {
-            // If inotify failed to initialize, sleep manually to prevent CPU pegging
+            // If inotify failed to initialize, sleep manually to prevent CPU
+            // pegging
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
         }
 
@@ -1140,7 +1156,8 @@ mruls::waitForFileChange() noexcept
             }
         }
 
-        // Check if the output path changed while we were waiting (e.g., toggled StdErr)
+        // Check if the output path changed while we were waiting (e.g., toggled
+        // StdErr)
         {
             std::lock_guard lock(m_mutex);
             if (m_output_path != path)
@@ -1152,8 +1169,8 @@ mruls::waitForFileChange() noexcept
 using namespace ftxui;
 
 // ── simple modal renderer ─────────────────────────────────────────────
-static Element renderModal(const std::string &title,
-                    const std::string &message)
+static Element
+renderModal(const std::string &title, const std::string &message)
 {
     return dbox({
         // dim background
@@ -1162,8 +1179,8 @@ static Element renderModal(const std::string &title,
         // centered dialog box
         vbox({
             hbox({
-                text(" " + title + " ")
-                    | bold | bgcolor(Color::Blue) | color(Color::White),
+                text(" " + title + " ") | bold | bgcolor(Color::Blue)
+                    | color(Color::White),
                 filler(),
             }),
             separator(),
@@ -1174,14 +1191,17 @@ static Element renderModal(const std::string &title,
                 text(" [ESC] Close ") | inverted,
                 text("  "),
             }),
-        })
-        | border
-        | size(WIDTH,  EQUAL, 50)
-        | size(HEIGHT, EQUAL, 10)
-        | clear_under        // clears background behind the box
-        | center,            // centers in terminal
+        }) | border
+            | size(WIDTH, EQUAL, 50) | size(HEIGHT, EQUAL, 10)
+            | clear_under // clears background behind the box
+            | center,     // centers in terminal
     });
 }
 
-void mruls::cancelJob() noexcept {
+void
+mruls::cancelJob() noexcept
+{
+    m_showing_modal = true;
+    m_modal         = utils::renderModal(
+        "Cancel Job", "Are you sure you want to cancel this job? [y/N]");
 }

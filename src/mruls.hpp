@@ -141,6 +141,7 @@ private:
 
     bool m_auto_scrolling{false};
     bool m_showing_modal{false};
+    ftxui::Element m_modal;
 
     // Configuration
     std::string m_config_file_path;
