@@ -18,9 +18,9 @@ struct Config
 
     struct JobOutput
     {
-        float refresh_interval{5.0f};
         bool show_line_numbers{true};
         int max_lines{200};
+        bool auto_scroll{true};
     } job_output;
 
     struct Slurm

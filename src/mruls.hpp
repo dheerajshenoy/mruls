@@ -87,7 +87,13 @@ private:
     void initDefaultConfig();
     void parseConfig() noexcept;
 
-    std::string readOutputFileTail(const std::string &path, int tail_lines) noexcept;
+    std::string readOutputFileTail(const std::string &path,
+                                   int tail_lines) noexcept;
+
+    // Inotify handling
+    void setupInotify(const std::string &path) noexcept;
+    void teardownInotify() noexcept;
+    void waitForFileChange() noexcept;
 
 private:
     static constexpr int FOOTER_HEIGHT = 4;
@@ -126,6 +132,10 @@ private:
     std::string m_stdout_path;
     std::string m_stderr_path;
     OutputType m_output_type{OutputType::STDOUT};
+
+    int m_inotify_fd{-1};       // inotify file descriptor
+    int m_inotify_wd{-1};       // inotify watch descriptor
+    std::string m_watched_path; // path being watched for output changes
 
     // Configuration
     std::string m_config_file_path;

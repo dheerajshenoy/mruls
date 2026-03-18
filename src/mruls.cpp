@@ -9,6 +9,8 @@
 #include <cstdio>
 #include <memory>
 #include <sstream>
+#include <sys/inotify.h>
+#include <unistd.h>
 
 mruls::mruls(const argparse::ArgumentParser &parser)
     : m_screen(ftxui::ScreenInteractive::Fullscreen())
@@ -38,14 +40,30 @@ mruls::mruls(const argparse::ArgumentParser &parser)
             }
             else if (m_view_type == ViewType::JOB_OUTPUT)
             {
+                waitForFileChange();
+                if (!m_running)
+                    break;
+
                 std::string path;
                 {
                     std::lock_guard lock(m_mutex);
                     path = m_output_path;
                 }
+
                 if (!path.empty())
+                {
                     output = readOutputFileTail(path,
                                                 m_config.job_output.max_lines);
+                    if (!output.empty())
+                    {
+                        std::lock_guard lock(m_mutex);
+                        if (!m_running)
+                            return;
+                        m_raw_output = std::move(output);
+                        m_dirty      = true;
+                    }
+                    m_screen.PostEvent(ftxui::Event::Custom);
+                }
             }
 
             if (!output.empty())
@@ -69,6 +87,7 @@ mruls::~mruls()
 {
     m_running = false;
     m_cv.notify_all();
+    teardownInotify();
 
     if (m_refresh_thread.joinable())
         m_refresh_thread.join();
@@ -94,8 +113,6 @@ mruls::refresh() noexcept
             break;
 
         case ViewType::JOB_OUTPUT:
-            time = std::chrono::duration<float>(
-                m_config.job_output.refresh_interval);
             break;
 
         default:
@@ -172,8 +189,15 @@ mruls::parseConfig() noexcept
 
     if (auto job_output = toml["job_output"])
     {
-        if (auto refresh = job_output["refresh_interval"].value<float>())
-            m_config.job_output.refresh_interval = *refresh;
+        if (auto show_line_numbers
+            = job_output["show_line_numbers"].value<bool>())
+            m_config.job_output.show_line_numbers = *show_line_numbers;
+
+        if (auto max_lines = job_output["max_lines"].value<int>())
+            m_config.job_output.max_lines = *max_lines;
+
+        if (auto auto_scroll = job_output["auto_scroll"].value<bool>())
+            m_config.job_output.auto_scroll = *auto_scroll;
     }
 
     if (auto slurm = toml["slurm"])
@@ -587,6 +611,8 @@ mruls::loadJobOutput(const std::string &job_id)
         m_scroll_y  = INT_MAX;
     }
 
+    setupInotify(m_output_path);
+
     m_cv.notify_all();
     m_screen.PostEvent(ftxui::Event::Custom);
 }
@@ -609,6 +635,8 @@ mruls::toggleOutputType()
         m_raw_output.clear();
         m_scroll_y = INT_MAX;
     }
+
+    setupInotify(m_output_path);
 
     m_screen.PostEvent(ftxui::Event::Custom);
     m_cv.notify_all(); // wake refresh thread in case it's waiting
@@ -910,4 +938,80 @@ mruls::readOutputFileTail(const std::string &path, int tail_lines) noexcept
     // otherwise land just after the newline we stopped on
     f.seekg(pos == 0 ? 0 : pos + 2);
     return std::string(std::istreambuf_iterator<char>(f), {});
+}
+
+void
+mruls::setupInotify(const std::string &path) noexcept
+{
+    teardownInotify(); // clean up any existing watch
+
+    m_inotify_fd = inotify_init1(IN_NONBLOCK);
+    if (m_inotify_fd == -1)
+        return;
+
+    m_inotify_wd = inotify_add_watch(m_inotify_fd, path.c_str(),
+                                     IN_MODIFY | IN_CLOSE_WRITE);
+    if (m_inotify_wd == -1)
+    {
+        close(m_inotify_fd);
+        m_inotify_fd = -1;
+        return;
+    }
+
+    m_watched_path = path;
+}
+
+void
+mruls::teardownInotify() noexcept
+{
+    if (m_inotify_fd != -1)
+    {
+        if (m_inotify_wd != -1)
+        {
+            inotify_rm_watch(m_inotify_fd, m_inotify_wd);
+            m_inotify_wd = -1;
+        }
+        close(m_inotify_fd);
+        m_inotify_fd = -1;
+    }
+    m_watched_path.clear();
+}
+
+void
+mruls::waitForFileChange() noexcept
+{
+    if (m_inotify_fd == -1)
+    {
+        // fallback to sleep if inotify not available
+        std::unique_lock lock(m_mutex);
+        m_cv.wait_for(lock, std::chrono::milliseconds(500),
+                      [this] { return !m_running.load(); });
+        return;
+    }
+
+    // use select() to wait on inotify fd OR m_running going false
+    // we use a pipe to wake select() when m_running goes false
+    while (m_running)
+    {
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(m_inotify_fd, &fds);
+
+        // timeout so we can check m_running periodically
+        struct timeval tv{1, 0}; // 1 second timeout
+
+        int ret = select(m_inotify_fd + 1, &fds, nullptr, nullptr, &tv);
+
+        if (ret <= 0)
+            continue; // timeout or error, loop and check m_running
+
+        if (FD_ISSET(m_inotify_fd, &fds))
+        {
+            // drain all pending events
+            char buf[4096];
+            while (read(m_inotify_fd, buf, sizeof(buf)) > 0)
+                ;   // consume events
+            return; // file changed, caller will read it
+        }
+    }
 }
