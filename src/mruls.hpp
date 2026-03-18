@@ -137,6 +137,8 @@ private:
     int m_inotify_wd{-1};       // inotify watch descriptor
     std::string m_watched_path; // path being watched for output changes
 
+    bool m_auto_scrolling{false};
+
     // Configuration
     std::string m_config_file_path;
     Config m_config;

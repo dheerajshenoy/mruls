@@ -2,6 +2,7 @@
 
 - Add config file support [TOML]
 - Add support for custom job commands
+- Add auto scrolling job output
 
 
 # 0.1.0
