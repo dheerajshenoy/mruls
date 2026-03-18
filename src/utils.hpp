@@ -7,7 +7,8 @@
 
 using namespace ftxui;
 
-namespace utils {
+namespace utils
+{
     Element renderModal(const std::string &title,
-            const std::string &message);
+                        const std::string &message) noexcept;
 };
