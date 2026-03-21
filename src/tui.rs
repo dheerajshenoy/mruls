@@ -122,15 +122,11 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
 }
 
 fn fetch_jobs(app: &mut App) {
-    // let output = Command::new("squeue")
-    //     .arg("-o")
-    //     .arg("%i %u %t %M %D %R")
-    //     .output()
-    //     .expect("Failed to execute squeue command");
-    let output = Command::new("ls")
-        .arg("-lah")
+    let output = Command::new("squeue")
+        .arg("-o")
+        .arg("%i %u %t %M %D %R")
         .output()
-        .expect("Failed to execute command");
+        .expect("Failed to execute squeue command");
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
