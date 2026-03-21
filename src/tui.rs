@@ -98,23 +98,85 @@ fn render_job_table<'a>(
     selected: usize,
     show_line_numbers: bool,
 ) -> (Table<'a>, usize) {
+    // determine column widths from all rows (not just header)
+    let col_widths: Vec<usize> = output_rows
+        .iter()
+        .fold(Vec::new(), |mut widths, line| {
+            for (i, word) in line.split_whitespace().enumerate() {
+                if i >= widths.len() {
+                    widths.push(word.len());
+                } else {
+                    widths[i] = widths[i].max(word.len());
+                }
+            }
+            widths
+        });
+
     let header = output_rows.first().map(|line| {
         let mut cells: Vec<Cell> = Vec::new();
         if show_line_numbers {
             cells.push(Cell::from("   "));
         }
-        cells.push(Cell::from(line.clone()).style(Style::default().add_modifier(Modifier::BOLD)));
+        cells.extend(
+            line.split_whitespace()
+                .map(|s| Cell::from(s.to_string())
+                    .style(Style::default()
+                        .add_modifier(Modifier::BOLD)
+                        .fg(Color::Yellow)))
+        );
         Row::new(cells).style(Style::default().bg(Color::DarkGray))
     });
 
-    let data_rows = output_rows.iter().skip(1).cloned().collect::<Vec<_>>();
-    let (mut table, count) = render_lines(&data_rows, block, selected, show_line_numbers);
+    let rows = output_rows
+        .iter()
+        .skip(1)
+        .enumerate()
+        .map(|(i, line)| {
+            let mut cells: Vec<Cell> = Vec::new();
+            if show_line_numbers {
+                let rel = (i as isize - selected as isize).abs();
+                let line_num = if i == selected {
+                    Cell::from(format!("{:>3} ", i + 1))
+                        .style(Style::default().fg(Color::Yellow))
+                } else {
+                    Cell::from(format!("{:>3} ", rel))
+                        .style(Style::default().fg(Color::DarkGray))
+                };
+                cells.push(line_num);
+            }
+            cells.extend(
+                line.split_whitespace()
+                    .map(|s| Cell::from(s.to_string()))
+            );
+            Row::new(cells)
+        })
+        .collect::<Vec<Row>>();
+
+    let rows_count = rows.len();
+
+    // build constraints from measured column widths + 2 padding each
+    let mut widths: Vec<Constraint> = Vec::new();
+    if show_line_numbers {
+        widths.push(Constraint::Length(5));
+    }
+    widths.extend(
+        col_widths.iter()
+            .map(|&w| Constraint::Length((w + 2) as u16))
+    );
+
+    let (mut table, _) = (
+        Table::new(rows, widths)
+            .block(block)
+            .column_spacing(1)
+            .row_highlight_style(Style::default().bg(Color::Blue)),
+        rows_count,
+    );
 
     if let Some(h) = header {
         table = table.header(h);
     }
 
-    (table, count)
+    (table, rows_count)
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +365,7 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
             KeyCode::Char('n') => app.toggle_line_numbers(),
             KeyCode::Char('r') => app.should_refresh = true,
             KeyCode::Enter => app.select_current_row(),
-            KeyCode::Esc => app.count_buffer.clear(),
+            KeyCode::Esc => app.go_back(),
             _ => {
                 app.count_buffer.clear();
             }
@@ -326,8 +388,7 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
             }
             KeyCode::Char('G') => app.last_row(),
             KeyCode::Char('n') => app.toggle_line_numbers(),
-            KeyCode::Char('b') | KeyCode::Backspace => app.go_back(),
-            KeyCode::Esc => app.count_buffer.clear(),
+            KeyCode::Esc => app.go_back(),
             _ => {
                 app.count_buffer.clear();
             }
