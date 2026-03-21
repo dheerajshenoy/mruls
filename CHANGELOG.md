@@ -1,3 +1,8 @@
+# 0.1.2
+- Rewrite MRULS in `rust` instead of `C++`
+- Vim-like keybindings support
+- Command line arguments
+
 # 0.1.1
 
 - Add config file support [TOML]
