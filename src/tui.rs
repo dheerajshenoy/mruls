@@ -238,7 +238,6 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
                     View::JobDetails => fetch_job_details(&mut app),
                     View::JobOutput => {}
                 }
-                terminal.clear()?;
             }
         }
 
