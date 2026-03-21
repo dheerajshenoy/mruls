@@ -25,7 +25,7 @@ impl Args {
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "--slurm_command" => slurm_command = args.next(),
+                "--slurm-command" => slurm_command = args.next(),
                 "-u" | "--username" => username = args.next(),
                 "--refresh-interval" => refresh_interval = args.next().and_then(|s| s.parse().ok()),
                 "--config" => config_path = args.next(),
