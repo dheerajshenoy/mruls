@@ -1,4 +1,5 @@
 use crate::Args;
+use std::path::PathBuf;
 
 use crate::config::Config;
 use ratatui::widgets::TableState;
@@ -32,6 +33,8 @@ pub struct App {
 
 // in app.rs
 fn build_config(args: &Args) -> Config {
+    // Read args first
+
     let mut config = match &args.config_path {
         Some(path) => Config::load(path),
         None => Config::default(),
@@ -41,8 +44,26 @@ fn build_config(args: &Args) -> Config {
     if let Some(ref username) = args.username {
         config.username = username.clone();
     }
+
     if let Some(refresh) = args.refresh_interval {
         config.refresh_interval = refresh;
+    }
+
+    // Check if config file exists at ~/.config/mruls/config.toml if no config path provided
+    if args.config_path.is_none() {
+        let default_path = std::env::var("HOME")
+            .ok()
+            .map(|home| {
+                PathBuf::from(home)
+                    .join(".config")
+                    .join("mruls")
+                    .join("config.toml")
+            })
+            .filter(|p| p.exists());
+
+        if let Some(path) = default_path {
+            config = Config::load(path.to_str().unwrap());
+        }
     }
 
     config

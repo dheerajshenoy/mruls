@@ -7,7 +7,6 @@ pub struct Config {
     pub relative_line_numbers: bool,
     pub confirm_on_quit: bool,
     pub max_lines: Option<i64>,
-    pub show_footer: bool,
     pub username: String,
 }
 
@@ -19,19 +18,10 @@ impl Default for Config {
             confirm_on_quit: true,
             relative_line_numbers: true,
             max_lines: Some(-1),
-            show_footer: true,
             username: String::new(),
         }
     }
 }
-
-// [general]
-// refresh_interval = 5 # -1 to disable auto-refresh
-// max_lines = 100 # -1 to show all lines
-// show_line_numbers = true
-// relative_line_numbers = true
-// show_footer = true
-//
 
 impl Config {
     pub fn load(path: &str) -> Self {
@@ -76,12 +66,6 @@ impl Config {
             .map(|i| if i < 0 { None } else { Some(i) })
             .unwrap_or(Some(-1));
 
-        let show_footer = value
-            .get("general")
-            .and_then(|g| g.get("show_footer"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-
         let username = value
             .get("slurm")
             .and_then(|g| g.get("username"))
@@ -95,7 +79,6 @@ impl Config {
             confirm_on_quit,
             relative_line_numbers,
             max_lines,
-            show_footer,
             username,
         }
     }

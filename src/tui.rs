@@ -1,6 +1,7 @@
 use crate::Args;
 use crate::app::Dialog;
 use crate::app::{App, View};
+use crate::config::Config;
 
 // Ratatui imports
 use ratatui::crossterm::{
@@ -80,23 +81,35 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 fn render_lines<'a>(
     output_rows: &[String],
     block: Block<'a>,
+    config: &Config,
     selected: usize,
-    show_line_numbers: bool,
 ) -> (Table<'a>, usize) {
     let rows = output_rows
         .iter()
         .enumerate()
         .map(|(i, line)| {
             let mut cells: Vec<Cell> = Vec::new();
-            if show_line_numbers {
-                let rel = (i as isize - selected as isize).abs();
-                let line_num = if i == selected {
-                    Cell::from(format!("{:>3} ", i + 1)).style(Style::default().fg(Color::Yellow))
+
+            if config.show_line_numbers {
+                let line_num;
+
+                if config.relative_line_numbers {
+                    let rel = (i as isize - selected as isize).abs();
+                    line_num = if i == selected {
+                        Cell::from(format!("{:>3} ", i + 1))
+                            .style(Style::default().fg(Color::Yellow))
+                    } else {
+                        Cell::from(format!("{:>3} ", rel))
+                            .style(Style::default().fg(Color::DarkGray))
+                    };
                 } else {
-                    Cell::from(format!("{:>3} ", rel)).style(Style::default().fg(Color::DarkGray))
-                };
+                    line_num = Cell::from(format!("{:>3} ", i + 1))
+                        .style(Style::default().fg(Color::DarkGray));
+                }
+
                 cells.push(line_num);
             }
+
             cells.push(Cell::from(line.clone()));
             Row::new(cells)
         })
@@ -105,7 +118,7 @@ fn render_lines<'a>(
     let rows_count = rows.len();
 
     let mut widths = Vec::new();
-    if show_line_numbers {
+    if config.show_line_numbers {
         widths.push(Constraint::Length(5));
     }
     widths.push(Constraint::Fill(1));
@@ -121,8 +134,8 @@ fn render_lines<'a>(
 fn render_job_table<'a>(
     output_rows: &[String],
     block: Block<'a>,
+    config: &Config,
     selected: usize,
-    show_line_numbers: bool,
 ) -> (Table<'a>, usize) {
     // determine column widths from all rows (not just header)
     let col_widths: Vec<usize> = output_rows.iter().fold(Vec::new(), |mut widths, line| {
@@ -138,7 +151,7 @@ fn render_job_table<'a>(
 
     let header = output_rows.first().map(|line| {
         let mut cells: Vec<Cell> = Vec::new();
-        if show_line_numbers {
+        if config.show_line_numbers {
             cells.push(Cell::from("   "));
         }
         cells.extend(line.split_whitespace().map(|s| {
@@ -157,13 +170,23 @@ fn render_job_table<'a>(
         .enumerate()
         .map(|(i, line)| {
             let mut cells: Vec<Cell> = Vec::new();
-            if show_line_numbers {
-                let rel = (i as isize - selected as isize).abs();
-                let line_num = if i == selected {
-                    Cell::from(format!("{:>3} ", i + 1)).style(Style::default().fg(Color::Yellow))
+            if config.show_line_numbers {
+                let line_num;
+
+                if config.relative_line_numbers {
+                    let rel = (i as isize - selected as isize).abs();
+                    line_num = if i == selected {
+                        Cell::from(format!("{:>3} ", i + 1))
+                            .style(Style::default().fg(Color::Yellow))
+                    } else {
+                        Cell::from(format!("{:>3} ", rel))
+                            .style(Style::default().fg(Color::DarkGray))
+                    };
                 } else {
-                    Cell::from(format!("{:>3} ", rel)).style(Style::default().fg(Color::DarkGray))
-                };
+                    line_num = Cell::from(format!("{:>3} ", i + 1))
+                        .style(Style::default().fg(Color::DarkGray));
+                }
+
                 cells.push(line_num);
             }
             cells.extend(line.split_whitespace().map(|s| Cell::from(s.to_string())));
@@ -175,7 +198,7 @@ fn render_job_table<'a>(
 
     // build constraints from measured column widths + 2 padding each
     let mut widths: Vec<Constraint> = Vec::new();
-    if show_line_numbers {
+    if config.show_line_numbers {
         widths.push(Constraint::Length(5));
     }
     widths.extend(
@@ -284,7 +307,6 @@ fn event_loop(
 
     loop {
         let selected = app.table_state.selected().unwrap_or(0);
-        let show_line_numbers = app.config.show_line_numbers;
 
         // build table outside draw closure
         let (table, num_rows) = match app.view {
@@ -293,20 +315,20 @@ fn event_loop(
                 Block::default()
                     .title(crate::APP_NAME)
                     .borders(Borders::ALL),
+                &app.config,
                 selected,
-                show_line_numbers,
             ),
             View::JobDetails => render_lines(
                 &app.output_rows,
                 Block::default().title("Job Details").borders(Borders::ALL),
+                &app.config,
                 selected,
-                show_line_numbers,
             ),
             View::JobOutput => render_lines(
                 &app.output_rows,
                 Block::default().title("Job Output").borders(Borders::ALL),
+                &app.config,
                 selected,
-                show_line_numbers,
             ),
         };
         app.num_rows = num_rows;
