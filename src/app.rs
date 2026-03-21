@@ -7,6 +7,12 @@ pub enum View {
     JobOutput,
 }
 
+pub enum Dialog {
+    None,
+    ConfirmQuit,
+    ConfirmCancelJob(String), // job ID
+}
+
 pub struct App {
     pub view: View,
     pub table_state: TableState,
@@ -18,6 +24,7 @@ pub struct App {
     pub count_buffer: String,
     pub pending_key: Option<char>,
     pub should_refresh: bool,
+    pub dialog: Dialog,
 }
 
 impl App {
@@ -35,6 +42,7 @@ impl App {
             count_buffer: String::new(),
             pending_key: None,
             should_refresh: false,
+            dialog: Dialog::None,
         }
     }
 
@@ -109,18 +117,10 @@ impl App {
         }
     }
 
-    pub fn request_refresh(&mut self) {
-        self.should_refresh = true;
-    }
-
     pub fn get_count(&mut self) -> usize {
         let count = self.count_buffer.parse::<usize>().unwrap_or(1);
         self.count_buffer.clear();
         count
-    }
-
-    pub fn current_row(&self) -> usize {
-        self.table_state.selected().unwrap_or(0)
     }
 
     pub fn toggle_line_numbers(&mut self) {

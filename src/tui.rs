@@ -1,3 +1,4 @@
+use crate::app::Dialog;
 use crate::app::{App, View};
 
 // Ratatui imports
@@ -8,8 +9,10 @@ use ratatui::crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::layout::Constraint;
+use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Row, Table};
+use ratatui::widgets::{Clear, Paragraph};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 // Standard library imports
@@ -50,6 +53,29 @@ pub fn run() -> Result<(), io::Error> {
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
+
+fn render_dialog(f: &mut ratatui::Frame, title: &str, message: &str) {
+    // center a small box on screen
+    let area = centered_rect(40, 6, f.area());
+
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::DarkGray));
+
+    let text = Paragraph::new(message)
+        .block(block)
+        .alignment(Alignment::Center);
+
+    f.render_widget(Clear, area); // clear background beneath dialog
+    f.render_widget(text, area);
+}
+
+fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let x = area.x + (area.width.saturating_sub(width)) / 2;
+    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    Rect::new(x, y, width.min(area.width), height.min(area.height))
+}
 
 fn render_lines<'a>(
     output_rows: &[String],
@@ -99,31 +125,29 @@ fn render_job_table<'a>(
     show_line_numbers: bool,
 ) -> (Table<'a>, usize) {
     // determine column widths from all rows (not just header)
-    let col_widths: Vec<usize> = output_rows
-        .iter()
-        .fold(Vec::new(), |mut widths, line| {
-            for (i, word) in line.split_whitespace().enumerate() {
-                if i >= widths.len() {
-                    widths.push(word.len());
-                } else {
-                    widths[i] = widths[i].max(word.len());
-                }
+    let col_widths: Vec<usize> = output_rows.iter().fold(Vec::new(), |mut widths, line| {
+        for (i, word) in line.split_whitespace().enumerate() {
+            if i >= widths.len() {
+                widths.push(word.len());
+            } else {
+                widths[i] = widths[i].max(word.len());
             }
-            widths
-        });
+        }
+        widths
+    });
 
     let header = output_rows.first().map(|line| {
         let mut cells: Vec<Cell> = Vec::new();
         if show_line_numbers {
             cells.push(Cell::from("   "));
         }
-        cells.extend(
-            line.split_whitespace()
-                .map(|s| Cell::from(s.to_string())
-                    .style(Style::default()
-                        .add_modifier(Modifier::BOLD)
-                        .fg(Color::Yellow)))
-        );
+        cells.extend(line.split_whitespace().map(|s| {
+            Cell::from(s.to_string()).style(
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .fg(Color::Yellow),
+            )
+        }));
         Row::new(cells).style(Style::default().bg(Color::DarkGray))
     });
 
@@ -136,18 +160,13 @@ fn render_job_table<'a>(
             if show_line_numbers {
                 let rel = (i as isize - selected as isize).abs();
                 let line_num = if i == selected {
-                    Cell::from(format!("{:>3} ", i + 1))
-                        .style(Style::default().fg(Color::Yellow))
+                    Cell::from(format!("{:>3} ", i + 1)).style(Style::default().fg(Color::Yellow))
                 } else {
-                    Cell::from(format!("{:>3} ", rel))
-                        .style(Style::default().fg(Color::DarkGray))
+                    Cell::from(format!("{:>3} ", rel)).style(Style::default().fg(Color::DarkGray))
                 };
                 cells.push(line_num);
             }
-            cells.extend(
-                line.split_whitespace()
-                    .map(|s| Cell::from(s.to_string()))
-            );
+            cells.extend(line.split_whitespace().map(|s| Cell::from(s.to_string())));
             Row::new(cells)
         })
         .collect::<Vec<Row>>();
@@ -160,8 +179,9 @@ fn render_job_table<'a>(
         widths.push(Constraint::Length(5));
     }
     widths.extend(
-        col_widths.iter()
-            .map(|&w| Constraint::Length((w + 2) as u16))
+        col_widths
+            .iter()
+            .map(|&w| Constraint::Length((w + 2) as u16)),
     );
 
     let (mut table, _) = (
@@ -288,6 +308,13 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
             }
         }
 
+        terminal.draw(|f| match app.dialog {
+            Dialog::ConfirmQuit => {
+                render_dialog(f, "Confirm Quit", "Are you sure you want to quit? (y/n)");
+            }
+            _ => {}
+        })?;
+
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
@@ -321,6 +348,17 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
 // ---------------------------------------------------------------------------
 
 fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
+    match app.dialog {
+        Dialog::ConfirmQuit => match key {
+            KeyCode::Char('y') => return app.quit(),
+            KeyCode::Char('n') | KeyCode::Esc => {
+                app.dialog = Dialog::None;
+                return false;
+            }
+            _ => return false,
+        },
+        _ => {}
+    }
     // accumulate numeric prefix e.g. "10" in "10j"
     if let KeyCode::Char(c) = key {
         if c.is_ascii_digit() && app.pending_key.is_none() {
@@ -347,7 +385,15 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
 
     match app.view {
         View::JobList => match key {
-            KeyCode::Char('q') => return app.quit(),
+            KeyCode::Char('q') => {
+                if app.config.confirm_on_quit {
+                    app.dialog = Dialog::ConfirmQuit;
+                    return false;
+                } else {
+                    return app.quit();
+                }
+            }
+
             KeyCode::Char('j') | KeyCode::Down => {
                 for _ in 0..count {
                     app.next_row();
@@ -395,5 +441,5 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
         },
     }
 
-    false
+    return false;
 }
