@@ -7,10 +7,11 @@ pub enum View {
     JobOutput,
 }
 
+#[derive(Clone)]
 pub enum Dialog {
     None,
     ConfirmQuit,
-    ConfirmCancelJob(String), // job ID
+    ConfirmCancel { job_id: String },
 }
 
 pub struct App {

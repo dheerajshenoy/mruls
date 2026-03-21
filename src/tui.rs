@@ -200,6 +200,23 @@ fn render_job_table<'a>(
 }
 
 // ---------------------------------------------------------------------------
+// Cancelling jobs
+// ---------------------------------------------------------------------------
+
+fn cancel_job(job_id: &str) -> Result<(), String> {
+    let output = Command::new("scancel")
+        .arg(job_id)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Fetching
 // ---------------------------------------------------------------------------
 
@@ -290,11 +307,13 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
         };
         app.num_rows = num_rows;
 
+        let dialog = app.dialog.clone();
+
         // single draw call — main view + dialog overlay
         terminal.draw(|f| {
             f.render_stateful_widget(table, f.area(), &mut app.table_state);
 
-            match app.dialog {
+            match &dialog {
                 Dialog::ConfirmQuit => {
                     render_dialog(
                         f,
@@ -302,6 +321,12 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
                         "Are you sure you want to quit?\n\n[y] Yes    [n] No",
                     );
                 }
+
+                Dialog::ConfirmCancel { job_id } => {
+                    let msg = format!("Cancel job {}?\n\n[y] Yes    [n] No", job_id);
+                    render_dialog(f, " Cancel Job ", &msg);
+                }
+
                 _ => {}
             }
         })?;
@@ -381,6 +406,18 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
                     return false;
                 } else {
                     return app.quit();
+                }
+            }
+
+            KeyCode::Char('c') => {
+                let index = app.table_state.selected().unwrap_or(0);
+                let data_index = index + 1; // skip header
+                if let Some(line) = app.output_rows.get(data_index) {
+                    if let Some(job_id) = line.split_whitespace().next() {
+                        app.dialog = Dialog::ConfirmCancel {
+                            job_id: job_id.to_string(),
+                        };
+                    }
                 }
             }
 
