@@ -267,52 +267,43 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
         let selected = app.table_state.selected().unwrap_or(0);
         let show_line_numbers = app.config.show_line_numbers;
 
-        match app.view {
-            View::JobList => {
-                let (table, num_rows) = render_job_table(
-                    &app.output_rows,
-                    Block::default().title(APP_NAME).borders(Borders::ALL),
-                    selected,
-                    show_line_numbers,
-                );
-                app.num_rows = num_rows;
-                terminal.draw(|f| {
-                    f.render_stateful_widget(table, f.area(), &mut app.table_state);
-                })?;
-            }
+        // build table outside draw closure
+        let (table, num_rows) = match app.view {
+            View::JobList => render_job_table(
+                &app.output_rows,
+                Block::default().title(APP_NAME).borders(Borders::ALL),
+                selected,
+                show_line_numbers,
+            ),
+            View::JobDetails => render_lines(
+                &app.output_rows,
+                Block::default().title("Job Details").borders(Borders::ALL),
+                selected,
+                show_line_numbers,
+            ),
+            View::JobOutput => render_lines(
+                &app.output_rows,
+                Block::default().title("Job Output").borders(Borders::ALL),
+                selected,
+                show_line_numbers,
+            ),
+        };
+        app.num_rows = num_rows;
 
-            View::JobDetails => {
-                let (table, num_rows) = render_lines(
-                    &app.output_rows,
-                    Block::default().title("Job Details").borders(Borders::ALL),
-                    selected,
-                    show_line_numbers,
-                );
-                app.num_rows = num_rows;
-                terminal.draw(|f| {
-                    f.render_stateful_widget(table, f.area(), &mut app.table_state);
-                })?;
-            }
+        // single draw call — main view + dialog overlay
+        terminal.draw(|f| {
+            f.render_stateful_widget(table, f.area(), &mut app.table_state);
 
-            View::JobOutput => {
-                let (table, num_rows) = render_lines(
-                    &app.output_rows,
-                    Block::default().title("Job Output").borders(Borders::ALL),
-                    selected,
-                    show_line_numbers,
-                );
-                app.num_rows = num_rows;
-                terminal.draw(|f| {
-                    f.render_stateful_widget(table, f.area(), &mut app.table_state);
-                })?;
+            match app.dialog {
+                Dialog::ConfirmQuit => {
+                    render_dialog(
+                        f,
+                        " Quit ",
+                        "Are you sure you want to quit?\n\n[y] Yes    [n] No",
+                    );
+                }
+                _ => {}
             }
-        }
-
-        terminal.draw(|f| match app.dialog {
-            Dialog::ConfirmQuit => {
-                render_dialog(f, "Confirm Quit", "Are you sure you want to quit? (y/n)");
-            }
-            _ => {}
         })?;
 
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
@@ -321,7 +312,6 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
                 if handle_key_event(&mut app, key.code) {
                     break;
                 }
-                // fetch immediately after view switch
                 match app.view {
                     View::JobList => fetch_jobs(&mut app),
                     View::JobDetails => fetch_job_details(&mut app),
