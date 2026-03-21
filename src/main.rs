@@ -50,7 +50,7 @@ impl Args {
     }
 
     fn print_help() {
-        println!("Usage: slurm-tui [OPTIONS]");
+        println!("Usage: mruls [OPTIONS]");
         println!();
         println!("Options:");
         println!("  --slurm-command <CMD>       Custom command to fetch Slurm jobs");
