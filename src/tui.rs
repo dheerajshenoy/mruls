@@ -162,7 +162,6 @@ fn render_job_table<'a>(
             Cell::from(s.to_string()).style(
                 Style::default()
                     .add_modifier(Modifier::BOLD)
-                    .fg(Color::Yellow),
             )
         }));
         Row::new(cells).style(Style::default().bg(Color::DarkGray))
