@@ -15,6 +15,9 @@ pub struct App {
     pub output_rows: Vec<String>,
     pub config: Config,
     pub selected_job_id: Option<String>,
+    pub count_buffer: String,
+    pub pending_key: Option<char>,
+    pub should_refresh: bool,
 }
 
 impl App {
@@ -29,6 +32,9 @@ impl App {
             output_rows: Vec::new(),
             config: Config::default(),
             selected_job_id: None,
+            count_buffer: String::new(),
+            pending_key: None,
+            should_refresh: false,
         }
     }
 
@@ -91,5 +97,25 @@ impl App {
                 self.table_state.select(Some(0)); // Reset selection to the first row
             }
         }
+    }
+
+    pub fn first_row(&mut self) {
+        self.table_state.select(Some(0));
+    }
+
+    pub fn last_row(&mut self) {
+        if self.num_rows > 0 {
+            self.table_state.select(Some(self.num_rows - 1));
+        }
+    }
+
+    pub fn request_refresh(&mut self) {
+        self.should_refresh = true;
+    }
+
+    pub fn get_count(&mut self) -> usize {
+        let count = self.count_buffer.parse::<usize>().unwrap_or(1);
+        self.count_buffer.clear();
+        count
     }
 }

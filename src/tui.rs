@@ -95,32 +95,6 @@ fn render_job_table<'a>(output_rows: &[String], block: &Block<'a>) -> (Table<'a>
     )
 }
 
-fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
-    match key {
-        KeyCode::Char('q') => app.quit(),
-        KeyCode::Char('j') => {
-            app.next_row();
-            false
-        }
-        KeyCode::Char('k') => {
-            app.prev_row();
-            false
-        }
-
-        KeyCode::Enter => {
-            app.select_current_row();
-            false
-        }
-
-        KeyCode::Esc => {
-            app.go_back();
-            false
-        }
-
-        _ => false,
-    }
-}
-
 fn fetch_jobs(app: &mut App) {
     let output = Command::new("squeue")
         .arg("-o")
@@ -233,4 +207,82 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
     }
 
     Ok(())
+}
+
+fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
+    // accumulate numeric prefix e.g. "10" in "10j"
+    if let KeyCode::Char(c) = key {
+        if c.is_ascii_digit() && app.pending_key.is_none() {
+            app.count_buffer.push(c);
+            return false;
+        }
+    }
+
+    // handle pending key combos e.g. "gg"
+    if let Some(pending) = app.pending_key.take() {
+        match (pending, key) {
+            ('g', KeyCode::Char('g')) => {
+                app.first_row();
+                app.count_buffer.clear();
+                return false;
+            }
+            // unknown combo — discard
+            _ => {
+                app.count_buffer.clear();
+                return false;
+            }
+        }
+    }
+
+    let count = app.get_count(); // consumes count_buffer, returns 1 if empty
+
+    match app.view {
+        View::JobList => match key {
+            KeyCode::Char('q') => return app.quit(),
+            KeyCode::Char('j') | KeyCode::Down => {
+                for _ in 0..count {
+                    app.next_row();
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                for _ in 0..count {
+                    app.prev_row();
+                }
+            }
+            KeyCode::Char('g') => {
+                app.pending_key = Some('g');
+            } // wait for second g
+            KeyCode::Char('G') => app.last_row(),
+            KeyCode::Enter => app.select_current_row(),
+            KeyCode::Char('r') => app.should_refresh = true,
+            KeyCode::Esc => app.count_buffer.clear(),
+            _ => {
+                app.count_buffer.clear();
+            }
+        },
+
+        View::JobDetails | View::JobOutput => match key {
+            KeyCode::Char('q') => return app.quit(),
+            KeyCode::Char('j') | KeyCode::Down => {
+                for _ in 0..count {
+                    app.next_row();
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                for _ in 0..count {
+                    app.prev_row();
+                }
+            }
+            KeyCode::Char('g') => {
+                app.pending_key = Some('g');
+            }
+            KeyCode::Char('G') => app.last_row(),
+            KeyCode::Char('b') | KeyCode::Backspace => app.go_back(),
+            KeyCode::Esc => app.count_buffer.clear(),
+            _ => {
+                app.count_buffer.clear();
+            }
+        },
+    }
+    false
 }
