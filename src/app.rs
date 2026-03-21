@@ -122,4 +122,8 @@ impl App {
     pub fn current_row(&self) -> usize {
         self.table_state.selected().unwrap_or(0)
     }
+
+    pub fn toggle_line_numbers(&mut self) {
+        self.config.show_line_numbers = !self.config.show_line_numbers;
+    }
 }

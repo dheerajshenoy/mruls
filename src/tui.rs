@@ -1,5 +1,4 @@
 use crate::app::{App, View};
-use crate::config::Config;
 
 // Ratatui imports
 use ratatui::crossterm::{
@@ -8,8 +7,8 @@ use ratatui::crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::layout::Constraint::{self};
-use ratatui::style::Style;
+use ratatui::layout::Constraint;
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Row, Table};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
@@ -26,16 +25,12 @@ pub fn run() -> Result<(), io::Error> {
     execute!(stdout, EnterAlternateScreen, Hide)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-
     terminal.clear()?;
 
-    // set panic hook to restore terminal before printing panic message
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
-        // restore terminal
         disable_raw_mode().unwrap();
-        execute!(io::stdout(), LeaveAlternateScreen, Show,).unwrap();
-        // print the panic message normally
+        execute!(io::stdout(), LeaveAlternateScreen, Show).unwrap();
         original_hook(panic_info);
     }));
 
@@ -49,23 +44,30 @@ pub fn run() -> Result<(), io::Error> {
         eprintln!("Error: {}", e);
     }
 
-    return res;
+    res
 }
 
-fn render_lines<'a>(output_rows: &[String], block: Block<'a>, app: &mut App) -> (Table<'a>, usize) {
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+fn render_lines<'a>(
+    output_rows: &[String],
+    block: Block<'a>,
+    selected: usize,
+    show_line_numbers: bool,
+) -> (Table<'a>, usize) {
     let rows = output_rows
         .iter()
         .enumerate()
         .map(|(i, line)| {
             let mut cells: Vec<Cell> = Vec::new();
-            if app.config.show_line_numbers {
-                let rel = (i as isize - app.current_row() as isize).abs();
-                let line_num = if i == app.current_row() {
-                    Cell::from(format!("{:>3} ", i + 1))
-                        .style(Style::default().fg(ratatui::style::Color::Yellow))
+            if show_line_numbers {
+                let rel = (i as isize - selected as isize).abs();
+                let line_num = if i == selected {
+                    Cell::from(format!("{:>3} ", i + 1)).style(Style::default().fg(Color::Yellow))
                 } else {
-                    Cell::from(format!("{:>3} ", rel))
-                        .style(Style::default().fg(ratatui::style::Color::DarkGray))
+                    Cell::from(format!("{:>3} ", rel)).style(Style::default().fg(Color::DarkGray))
                 };
                 cells.push(line_num);
             }
@@ -77,34 +79,36 @@ fn render_lines<'a>(output_rows: &[String], block: Block<'a>, app: &mut App) -> 
     let rows_count = rows.len();
 
     let mut widths = Vec::new();
-    if app.config.show_line_numbers {
+    if show_line_numbers {
         widths.push(Constraint::Length(5));
     }
-    widths.push(Constraint::Fill(1)); // single content column takes remaining space
+    widths.push(Constraint::Fill(1));
 
     (
         Table::new(rows, widths)
             .block(block)
-            .row_highlight_style(Style::default().bg(ratatui::style::Color::Blue)),
+            .row_highlight_style(Style::default().bg(Color::Blue)),
         rows_count,
     )
 }
 
-fn render_job_table<'a>(app: &mut App, block: &Block<'a>) -> (Table<'a>, usize) {
-    let header = app.output_rows.first().map(|line| {
+fn render_job_table<'a>(
+    output_rows: &[String],
+    block: Block<'a>,
+    selected: usize,
+    show_line_numbers: bool,
+) -> (Table<'a>, usize) {
+    let header = output_rows.first().map(|line| {
         let mut cells: Vec<Cell> = Vec::new();
-        if app.config.show_line_numbers {
+        if show_line_numbers {
             cells.push(Cell::from("   "));
         }
-        cells.push(
-            Cell::from(line.clone())
-                .style(Style::default().add_modifier(ratatui::style::Modifier::BOLD)),
-        );
-        Row::new(cells).style(Style::default().bg(ratatui::style::Color::DarkGray))
+        cells.push(Cell::from(line.clone()).style(Style::default().add_modifier(Modifier::BOLD)));
+        Row::new(cells).style(Style::default().bg(Color::DarkGray))
     });
 
-    let data_rows = app.output_rows.iter().skip(1).cloned().collect::<Vec<_>>();
-    let (mut table, count) = render_lines(&data_rows, block.clone(), app);
+    let data_rows = output_rows.iter().skip(1).cloned().collect::<Vec<_>>();
+    let (mut table, count) = render_lines(&data_rows, block, selected, show_line_numbers);
 
     if let Some(h) = header {
         table = table.header(h);
@@ -112,6 +116,10 @@ fn render_job_table<'a>(app: &mut App, block: &Block<'a>) -> (Table<'a>, usize) 
 
     (table, count)
 }
+
+// ---------------------------------------------------------------------------
+// Fetching
+// ---------------------------------------------------------------------------
 
 fn fetch_jobs(app: &mut App) {
     let output = Command::new("squeue")
@@ -146,12 +154,13 @@ fn fetch_job_details(app: &mut App) {
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        // scontrol outputs key=value pairs separated by whitespace/newlines
-        // normalize into one key=value per line for clean display
         app.output_rows = stdout
             .split_whitespace()
             .filter(|s| s.contains('='))
-            .map(|s| s.to_string())
+            .map(|s| {
+                let (k, v) = s.split_once('=').unwrap_or((s, ""));
+                format!("{:<30} {}", k, v)
+            })
             .collect();
     } else {
         app.output_rows = vec![format!(
@@ -161,6 +170,10 @@ fn fetch_job_details(app: &mut App) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Event loop
+// ---------------------------------------------------------------------------
+
 fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(), io::Error> {
     let mut app = App::new();
     let tick_rate = Duration::from_secs(app.config.refresh_interval);
@@ -169,32 +182,46 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
     fetch_jobs(&mut app);
 
     loop {
+        let selected = app.table_state.selected().unwrap_or(0);
+        let show_line_numbers = app.config.show_line_numbers;
+
         match app.view {
             View::JobList => {
-                let (table, num_rows) =
-                    render_job_table(&mut app, &Block::default().borders(Borders::ALL));
+                let (table, num_rows) = render_job_table(
+                    &app.output_rows,
+                    Block::default().title(APP_NAME).borders(Borders::ALL),
+                    selected,
+                    show_line_numbers,
+                );
                 app.num_rows = num_rows;
                 terminal.draw(|f| {
-                    let size = f.area();
-                    f.render_stateful_widget(table, size, &mut app.table_state);
+                    f.render_stateful_widget(table, f.area(), &mut app.table_state);
                 })?;
             }
 
             View::JobDetails => {
-                let (table, num_rows) =
-                    render_job_table(&mut app, &Block::default().borders(Borders::ALL));
+                let (table, num_rows) = render_lines(
+                    &app.output_rows,
+                    Block::default().title("Job Details").borders(Borders::ALL),
+                    selected,
+                    show_line_numbers,
+                );
                 app.num_rows = num_rows;
                 terminal.draw(|f| {
-                    let size = f.area();
-                    f.render_stateful_widget(table, size, &mut app.table_state);
+                    f.render_stateful_widget(table, f.area(), &mut app.table_state);
                 })?;
             }
 
             View::JobOutput => {
+                let (table, num_rows) = render_lines(
+                    &app.output_rows,
+                    Block::default().title("Job Output").borders(Borders::ALL),
+                    selected,
+                    show_line_numbers,
+                );
+                app.num_rows = num_rows;
                 terminal.draw(|f| {
-                    let size = f.area();
-                    let block = Block::default().title("Job Output").borders(Borders::ALL);
-                    f.render_widget(block, size);
+                    f.render_stateful_widget(table, f.area(), &mut app.table_state);
                 })?;
             }
         }
@@ -205,12 +232,13 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
                 if handle_key_event(&mut app, key.code) {
                     break;
                 }
-            }
-
-            match app.view {
-                View::JobList => fetch_jobs(&mut app),
-                View::JobDetails => fetch_job_details(&mut app),
-                View::JobOutput => {}
+                // fetch immediately after view switch
+                match app.view {
+                    View::JobList => fetch_jobs(&mut app),
+                    View::JobDetails => fetch_job_details(&mut app),
+                    View::JobOutput => {}
+                }
+                terminal.clear()?;
             }
         }
 
@@ -227,6 +255,10 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Key handling
+// ---------------------------------------------------------------------------
+
 fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
     // accumulate numeric prefix e.g. "10" in "10j"
     if let KeyCode::Char(c) = key {
@@ -242,17 +274,15 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
             ('g', KeyCode::Char('g')) => {
                 app.first_row();
                 app.count_buffer.clear();
-                return false;
             }
-            // unknown combo — discard
             _ => {
                 app.count_buffer.clear();
-                return false;
             }
         }
+        return false;
     }
 
-    let count = app.get_count(); // consumes count_buffer, returns 1 if empty
+    let count = app.get_count();
 
     match app.view {
         View::JobList => match key {
@@ -269,10 +299,11 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
             }
             KeyCode::Char('g') => {
                 app.pending_key = Some('g');
-            } // wait for second g
+            }
             KeyCode::Char('G') => app.last_row(),
-            KeyCode::Enter => app.select_current_row(),
+            KeyCode::Char('n') => app.toggle_line_numbers(),
             KeyCode::Char('r') => app.should_refresh = true,
+            KeyCode::Enter => app.select_current_row(),
             KeyCode::Esc => app.count_buffer.clear(),
             _ => {
                 app.count_buffer.clear();
@@ -295,6 +326,7 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
                 app.pending_key = Some('g');
             }
             KeyCode::Char('G') => app.last_row(),
+            KeyCode::Char('n') => app.toggle_line_numbers(),
             KeyCode::Char('b') | KeyCode::Backspace => app.go_back(),
             KeyCode::Esc => app.count_buffer.clear(),
             _ => {
@@ -302,5 +334,6 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
             }
         },
     }
+
     false
 }
