@@ -363,7 +363,7 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
 // ---------------------------------------------------------------------------
 
 fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
-    match app.dialog {
+    match &app.dialog {
         Dialog::ConfirmQuit => match key {
             KeyCode::Char('y') => return app.quit(),
             KeyCode::Char('n') | KeyCode::Esc => {
@@ -372,6 +372,30 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
             }
             _ => return false,
         },
+
+        Dialog::ConfirmCancel { job_id } => {
+            let job_id = job_id.clone(); // clone to release borrow on app
+            match key {
+                KeyCode::Char('y') | KeyCode::Enter => {
+                    match cancel_job(&job_id) {
+                        Ok(_) => {
+                            app.dialog = Dialog::None;
+                            fetch_jobs(app); // refresh list immediately
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to cancel job {}: {}", job_id, e);
+                            app.dialog = Dialog::None;
+                        }
+                    }
+                }
+                KeyCode::Char('n') | KeyCode::Esc => {
+                    app.dialog = Dialog::None;
+                }
+                _ => {}
+            }
+            return false;
+        }
+
         _ => {}
     }
     // accumulate numeric prefix e.g. "10" in "10j"
