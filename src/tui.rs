@@ -22,6 +22,10 @@ use std::io;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+fn to_io_err(e: String) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, e)
+}
+
 pub fn run(args: Args) -> Result<(), io::Error> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -40,9 +44,9 @@ pub fn run(args: Args) -> Result<(), io::Error> {
     let mut app = App::new(args);
     let res = event_loop(&mut app, &mut terminal);
 
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), Show, LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
+    let _ = disable_raw_mode()?;
+    let _ = execute!(terminal.backend_mut(), Show, LeaveAlternateScreen)?;
+    let _ = terminal.show_cursor()?;
 
     if let Err(ref e) = res {
         eprintln!("Error: {}", e);
@@ -239,57 +243,65 @@ fn cancel_job(job_id: &str) -> Result<(), String> {
     }
 }
 
+fn run_command(cmd: &str) -> Result<Vec<String>, String> {
+    let mut parts = cmd.split_whitespace();
+    let program = parts.next().ok_or_else(|| "Empty command".to_string())?;
+    println!("Running command: {}", cmd);
+
+    let output = Command::new(program)
+        .args(parts)
+        .output()
+        .map_err(|e| format!("Failed to run '{}': {}", program, e))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|s| s.to_string())
+            .collect())
+    } else {
+        Err(format!(
+            "Command '{}' failed with status {}: {}",
+            cmd,
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Fetching
 // ---------------------------------------------------------------------------
 
-fn fetch_jobs(app: &mut App) {
-    let output = Command::new("squeue")
-        .arg("-o")
-        .arg("%i %u %t %M %D %R")
-        .output()
-        .expect("Failed to execute squeue command");
-
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        app.output_rows = stdout.lines().map(|s| s.to_string()).collect();
-    } else {
-        eprintln!(
-            "Error fetching jobs: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+fn fetch_jobs(app: &mut App) -> Result<(), String> {
+    match run_command(&app.config.slurm_command) {
+        Ok(rows) => {
+            app.output_rows = rows;
+            Ok(())
+        }
+        Err(e) => Err(e),
     }
 }
 
-fn fetch_job_details(app: &mut App) {
+fn fetch_job_details(app: &mut App) -> Result<(), String> {
     let job_id = match &app.selected_job_id {
         Some(id) => id.clone(),
-        None => return,
+        None => return Err("No job selected".to_string()),
     };
 
-    let output = Command::new("scontrol")
-        .arg("show")
-        .arg("job")
-        .arg(&job_id)
-        .output()
-        .expect("Failed to execute scontrol command");
+    let cmd = format!("scontrol show job {}", job_id);
+    let rows = run_command(&cmd)?;
 
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        app.output_rows = stdout
-            .split_whitespace()
-            .filter(|s| s.contains('='))
-            .map(|s| {
-                let (k, v) = s.split_once('=').unwrap_or((s, ""));
-                format!("{:<30} {}", k, v)
-            })
-            .collect();
-    } else {
-        app.output_rows = vec![format!(
-            "Error: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        )];
-    }
+    app.output_rows = rows
+        .join(" ")
+        .split_whitespace()
+        .filter(|s| s.contains('='))
+        .map(|s| {
+            let (k, v) = s.split_once('=').unwrap_or((s, ""));
+            format!("{:<30} {}", k, v)
+        })
+        .collect();
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +315,7 @@ fn event_loop(
     let tick_rate = Duration::from_secs(app.config.refresh_interval);
     let mut last_tick = Instant::now();
 
-    fetch_jobs(app);
+    fetch_jobs(app).map_err(to_io_err)?;
 
     loop {
         let selected = app.table_state.selected().unwrap_or(0);
@@ -358,15 +370,21 @@ fn event_loop(
         })?;
 
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
+
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
                 if handle_key_event(app, key.code) {
                     break;
                 }
-                match app.view {
-                    View::JobList => fetch_jobs(app),
-                    View::JobDetails => fetch_job_details(app),
-                    View::JobOutput => {}
+
+                if app.should_refresh {
+                    match app.view {
+                        View::JobList => fetch_jobs(app),
+                        View::JobDetails => fetch_job_details(app),
+                        View::JobOutput => Ok(()),
+                    }
+                    .map_err(to_io_err)?;
+                    app.should_refresh = false;
                 }
             }
         }
@@ -375,8 +393,9 @@ fn event_loop(
             match app.view {
                 View::JobList => fetch_jobs(app),
                 View::JobDetails => fetch_job_details(app),
-                View::JobOutput => {}
+                View::JobOutput => Ok(()),
             }
+            .map_err(to_io_err)?;
             last_tick = Instant::now();
         }
     }
@@ -406,7 +425,7 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
                     match cancel_job(&job_id) {
                         Ok(_) => {
                             app.dialog = Dialog::None;
-                            fetch_jobs(app); // refresh list immediately
+                            _ = fetch_jobs(app); // refresh list immediately
                         }
                         Err(e) => {
                             eprintln!("Failed to cancel job {}: {}", job_id, e);

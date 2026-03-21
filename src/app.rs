@@ -49,6 +49,7 @@ fn build_config(args: &Args) -> Config {
         config.refresh_interval = refresh;
     }
 
+    // Read config file
     // Check if config file exists at ~/.config/mruls/config.toml if no config path provided
     if args.config_path.is_none() {
         let default_path = std::env::var("HOME")
