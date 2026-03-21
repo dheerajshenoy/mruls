@@ -1,4 +1,5 @@
 use crate::app::{App, View};
+use crate::config::Config;
 
 // Ratatui imports
 use ratatui::crossterm::{
@@ -51,38 +52,52 @@ pub fn run() -> Result<(), io::Error> {
     return res;
 }
 
-fn render_job_table<'a>(output_rows: &[String], block: &Block<'a>) -> (Table<'a>, usize) {
-    // Returns the table and the number of rows for pagination
-
+fn render_job_table<'a>(
+    output_rows: &[String],
+    block: &Block<'a>,
+    config: &Config,
+) -> (Table<'a>, usize) {
     let header = output_rows
         .first()
         .map(|line| {
-            let cells: Vec<ratatui::text::Text> = line
-                .split_whitespace()
-                .map(|s| ratatui::text::Text::raw(s.to_string()))
-                .collect();
+            let mut cells: Vec<ratatui::text::Text> = Vec::new();
+            if config.show_line_numbers {
+                cells.push(ratatui::text::Text::raw("   "));
+            }
+            cells.extend(
+                line.split_whitespace()
+                    .map(|s| ratatui::text::Text::raw(s.to_string())),
+            );
             Row::new(cells).style(Style::default().bg(ratatui::style::Color::DarkGray))
         })
         .unwrap();
 
     let rows = output_rows
         .iter()
-        .skip(1) // Skip the header
-        .map(|line| {
-            let cells: Vec<Cell> = line
-                .split_whitespace()
-                .map(|s| Cell::from(s.to_string()))
-                .collect();
+        .skip(1)
+        .enumerate()
+        .map(|(i, line)| {
+            let mut cells: Vec<Cell> = Vec::new();
+            if config.show_line_numbers {
+                let line_num = Cell::from(format!("{:>3} ", i))
+                    .style(Style::default().fg(ratatui::style::Color::DarkGray));
+                cells.push(line_num);
+            }
+            cells.extend(line.split_whitespace().map(|s| Cell::from(s.to_string())));
             Row::new(cells)
         })
         .collect::<Vec<Row>>();
 
-    // Split the first line to determine the number of columns
     let num_columns = output_rows
         .first()
         .map(|s| s.split_whitespace().count())
         .unwrap_or(0);
-    let widths = vec![Constraint::Length(20); num_columns];
+
+    let mut widths = Vec::new();
+    if config.show_line_numbers {
+        widths.push(Constraint::Length(5));
+    }
+    widths.extend(vec![Constraint::Length(20); num_columns]);
 
     let rows_count = rows.len();
 
@@ -153,8 +168,11 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
     loop {
         match app.view {
             View::JobList => {
-                let (table, num_rows) =
-                    render_job_table(&app.output_rows, &Block::default().borders(Borders::ALL));
+                let (table, num_rows) = render_job_table(
+                    &app.output_rows,
+                    &Block::default().borders(Borders::ALL),
+                    &app.config,
+                );
                 app.num_rows = num_rows;
                 terminal.draw(|f| {
                     let size = f.area();
@@ -163,8 +181,11 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
             }
 
             View::JobDetails => {
-                let (table, num_rows) =
-                    render_job_table(&app.output_rows, &Block::default().borders(Borders::ALL));
+                let (table, num_rows) = render_job_table(
+                    &app.output_rows,
+                    &Block::default().borders(Borders::ALL),
+                    &app.config,
+                );
                 app.num_rows = num_rows;
                 terminal.draw(|f| {
                     let size = f.area();
