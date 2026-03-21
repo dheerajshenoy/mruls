@@ -28,11 +28,25 @@ pub fn run() -> Result<(), io::Error> {
 
     terminal.clear()?;
 
+    // set panic hook to restore terminal before printing panic message
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        // restore terminal
+        disable_raw_mode().unwrap();
+        execute!(io::stdout(), LeaveAlternateScreen, Show,).unwrap();
+        // print the panic message normally
+        original_hook(panic_info);
+    }));
+
     let res = event_loop(&mut terminal);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), Show, LeaveAlternateScreen)?;
     terminal.show_cursor()?;
+
+    if let Err(ref e) = res {
+        eprintln!("Error: {}", e);
+    }
 
     return res;
 }
@@ -93,6 +107,16 @@ fn handle_key_event(app: &mut App, key: KeyCode) -> bool {
             false
         }
 
+        KeyCode::Enter => {
+            app.select_current_row();
+            false
+        }
+
+        KeyCode::Esc => {
+            app.go_back();
+            false
+        }
+
         _ => false,
     }
 }
@@ -119,6 +143,36 @@ fn fetch_jobs(app: &mut App) {
     }
 }
 
+fn fetch_job_details(app: &mut App) {
+    let job_id = match &app.selected_job_id {
+        Some(id) => id.clone(),
+        None => return,
+    };
+
+    let output = Command::new("scontrol")
+        .arg("show")
+        .arg("job")
+        .arg(&job_id)
+        .output()
+        .expect("Failed to execute scontrol command");
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        // scontrol outputs key=value pairs separated by whitespace/newlines
+        // normalize into one key=value per line for clean display
+        app.output_rows = stdout
+            .split_whitespace()
+            .filter(|s| s.contains('='))
+            .map(|s| s.to_string())
+            .collect();
+    } else {
+        app.output_rows = vec![format!(
+            "Error: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )];
+    }
+}
+
 fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(), io::Error> {
     let mut app = App::new();
     let tick_rate = Duration::from_secs(app.config.refresh_interval);
@@ -127,32 +181,36 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
     fetch_jobs(&mut app);
 
     loop {
-        // compute num_rows outside the draw closure
-        let (table, num_rows) = match app.view {
+        match app.view {
             View::JobList => {
-                render_job_table(&app.output_rows, &Block::default().borders(Borders::ALL))
-            }
-            _ => todo!(),
-        };
-        app.num_rows = num_rows;
-
-        terminal.draw(|f| {
-            let size = f.area();
-
-            match app.view {
-                View::JobList => {
+                let (table, num_rows) =
+                    render_job_table(&app.output_rows, &Block::default().borders(Borders::ALL));
+                app.num_rows = num_rows;
+                terminal.draw(|f| {
+                    let size = f.area();
                     f.render_stateful_widget(table, size, &mut app.table_state);
-                }
-                View::JobDetails => {
-                    todo!("Render job details view");
-                }
-                View::JobOutput => {
-                    todo!("Render job output view");
-                }
+                })?;
             }
-        })?;
 
-        // poll with timeout to allow for periodic refresh
+            View::JobDetails => {
+                let (table, num_rows) =
+                    render_job_table(&app.output_rows, &Block::default().borders(Borders::ALL));
+                app.num_rows = num_rows;
+                terminal.draw(|f| {
+                    let size = f.area();
+                    f.render_stateful_widget(table, size, &mut app.table_state);
+                })?;
+            }
+
+            View::JobOutput => {
+                terminal.draw(|f| {
+                    let size = f.area();
+                    let block = Block::default().title("Job Output").borders(Borders::ALL);
+                    f.render_widget(block, size);
+                })?;
+            }
+        }
+
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
@@ -160,11 +218,19 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
                     break;
                 }
             }
+
+            match app.view {
+                View::JobList => fetch_jobs(&mut app),
+                View::JobDetails => fetch_job_details(&mut app),
+                View::JobOutput => {}
+            }
         }
 
         if last_tick.elapsed() >= tick_rate {
-            if let View::JobList = app.view {
-                fetch_jobs(&mut app);
+            match app.view {
+                View::JobList => fetch_jobs(&mut app),
+                View::JobDetails => fetch_job_details(&mut app),
+                View::JobOutput => {}
             }
             last_tick = Instant::now();
         }
