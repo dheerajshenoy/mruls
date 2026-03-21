@@ -1,3 +1,4 @@
+use crate::Args;
 use crate::app::Dialog;
 use crate::app::{App, View};
 
@@ -20,9 +21,7 @@ use std::io;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-const APP_NAME: &str = "MRULS";
-
-pub fn run() -> Result<(), io::Error> {
+pub fn run(args: Args) -> Result<(), io::Error> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, Hide)?;
@@ -37,7 +36,8 @@ pub fn run() -> Result<(), io::Error> {
         original_hook(panic_info);
     }));
 
-    let res = event_loop(&mut terminal);
+    let mut app = App::new(args);
+    let res = event_loop(&mut app, &mut terminal);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), Show, LeaveAlternateScreen)?;
@@ -273,12 +273,14 @@ fn fetch_job_details(app: &mut App) {
 // Event loop
 // ---------------------------------------------------------------------------
 
-fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(), io::Error> {
-    let mut app = App::new();
+fn event_loop(
+    app: &mut App,
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+) -> Result<(), io::Error> {
     let tick_rate = Duration::from_secs(app.config.refresh_interval);
     let mut last_tick = Instant::now();
 
-    fetch_jobs(&mut app);
+    fetch_jobs(app);
 
     loop {
         let selected = app.table_state.selected().unwrap_or(0);
@@ -288,7 +290,9 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
         let (table, num_rows) = match app.view {
             View::JobList => render_job_table(
                 &app.output_rows,
-                Block::default().title(APP_NAME).borders(Borders::ALL),
+                Block::default()
+                    .title(crate::APP_NAME)
+                    .borders(Borders::ALL),
                 selected,
                 show_line_numbers,
             ),
@@ -334,12 +338,12 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
-                if handle_key_event(&mut app, key.code) {
+                if handle_key_event(app, key.code) {
                     break;
                 }
                 match app.view {
-                    View::JobList => fetch_jobs(&mut app),
-                    View::JobDetails => fetch_job_details(&mut app),
+                    View::JobList => fetch_jobs(app),
+                    View::JobDetails => fetch_job_details(app),
                     View::JobOutput => {}
                 }
             }
@@ -347,8 +351,8 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
 
         if last_tick.elapsed() >= tick_rate {
             match app.view {
-                View::JobList => fetch_jobs(&mut app),
-                View::JobDetails => fetch_job_details(&mut app),
+                View::JobList => fetch_jobs(app),
+                View::JobDetails => fetch_job_details(app),
                 View::JobOutput => {}
             }
             last_tick = Instant::now();

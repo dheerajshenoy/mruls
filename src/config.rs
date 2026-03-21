@@ -1,15 +1,102 @@
+use std::fs;
+use toml::Value;
+
 pub struct Config {
     pub refresh_interval: u64,
     pub show_line_numbers: bool,
+    pub relative_line_numbers: bool,
     pub confirm_on_quit: bool,
+    pub max_lines: Option<i64>,
+    pub show_footer: bool,
+    pub username: String,
 }
 
-impl Config {
-    pub fn default() -> Self {
+impl Default for Config {
+    fn default() -> Self {
         Self {
             refresh_interval: 5,
             show_line_numbers: true,
             confirm_on_quit: true,
+            relative_line_numbers: true,
+            max_lines: Some(-1),
+            show_footer: true,
+            username: String::new(),
+        }
+    }
+}
+
+// [general]
+// refresh_interval = 5 # -1 to disable auto-refresh
+// max_lines = 100 # -1 to show all lines
+// show_line_numbers = true
+// relative_line_numbers = true
+// show_footer = true
+//
+
+impl Config {
+    pub fn load(path: &str) -> Self {
+        let content = fs::read_to_string(path).unwrap_or_else(|_| {
+            eprintln!("Failed to read config file at '{}', using defaults.", path);
+            String::new()
+        });
+
+        let value = content.parse::<Value>().unwrap_or_else(|_| {
+            eprintln!("Failed to parse config file, using defaults.");
+            Value::Table(Default::default())
+        });
+
+        let refresh_interval = value
+            .get("general")
+            .and_then(|g| g.get("refresh_interval"))
+            .and_then(|v| v.as_integer())
+            .unwrap_or(5) as u64;
+
+        let show_line_numbers = value
+            .get("general")
+            .and_then(|g| g.get("show_line_numbers"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let confirm_on_quit = value
+            .get("general")
+            .and_then(|g| g.get("confirm_on_quit"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let relative_line_numbers = value
+            .get("general")
+            .and_then(|g| g.get("relative_line_numbers"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let max_lines = value
+            .get("general")
+            .and_then(|g| g.get("max_lines"))
+            .and_then(|v| v.as_integer())
+            .map(|i| if i < 0 { None } else { Some(i) })
+            .unwrap_or(Some(-1));
+
+        let show_footer = value
+            .get("general")
+            .and_then(|g| g.get("show_footer"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let username = value
+            .get("slurm")
+            .and_then(|g| g.get("username"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        Self {
+            refresh_interval,
+            show_line_numbers,
+            confirm_on_quit,
+            relative_line_numbers,
+            max_lines,
+            show_footer,
+            username,
         }
     }
 }
