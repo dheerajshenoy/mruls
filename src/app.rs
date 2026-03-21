@@ -118,4 +118,8 @@ impl App {
         self.count_buffer.clear();
         count
     }
+
+    pub fn current_row(&self) -> usize {
+        self.table_state.selected().unwrap_or(0)
+    }
 }

@@ -52,62 +52,65 @@ pub fn run() -> Result<(), io::Error> {
     return res;
 }
 
-fn render_job_table<'a>(
-    output_rows: &[String],
-    block: &Block<'a>,
-    config: &Config,
-) -> (Table<'a>, usize) {
-    let header = output_rows
-        .first()
-        .map(|line| {
-            let mut cells: Vec<ratatui::text::Text> = Vec::new();
-            if config.show_line_numbers {
-                cells.push(ratatui::text::Text::raw("   "));
-            }
-            cells.extend(
-                line.split_whitespace()
-                    .map(|s| ratatui::text::Text::raw(s.to_string())),
-            );
-            Row::new(cells).style(Style::default().bg(ratatui::style::Color::DarkGray))
-        })
-        .unwrap();
-
+fn render_lines<'a>(output_rows: &[String], block: Block<'a>, app: &mut App) -> (Table<'a>, usize) {
     let rows = output_rows
         .iter()
-        .skip(1)
         .enumerate()
         .map(|(i, line)| {
             let mut cells: Vec<Cell> = Vec::new();
-            if config.show_line_numbers {
-                let line_num = Cell::from(format!("{:>3} ", i))
-                    .style(Style::default().fg(ratatui::style::Color::DarkGray));
+            if app.config.show_line_numbers {
+                let rel = (i as isize - app.current_row() as isize).abs();
+                let line_num = if i == app.current_row() {
+                    Cell::from(format!("{:>3} ", i + 1))
+                        .style(Style::default().fg(ratatui::style::Color::Yellow))
+                } else {
+                    Cell::from(format!("{:>3} ", rel))
+                        .style(Style::default().fg(ratatui::style::Color::DarkGray))
+                };
                 cells.push(line_num);
             }
-            cells.extend(line.split_whitespace().map(|s| Cell::from(s.to_string())));
+            cells.push(Cell::from(line.clone()));
             Row::new(cells)
         })
         .collect::<Vec<Row>>();
 
-    let num_columns = output_rows
-        .first()
-        .map(|s| s.split_whitespace().count())
-        .unwrap_or(0);
+    let rows_count = rows.len();
 
     let mut widths = Vec::new();
-    if config.show_line_numbers {
+    if app.config.show_line_numbers {
         widths.push(Constraint::Length(5));
     }
-    widths.extend(vec![Constraint::Length(20); num_columns]);
-
-    let rows_count = rows.len();
+    widths.push(Constraint::Fill(1)); // single content column takes remaining space
 
     (
         Table::new(rows, widths)
-            .header(header)
-            .block(block.clone())
+            .block(block)
             .row_highlight_style(Style::default().bg(ratatui::style::Color::Blue)),
         rows_count,
     )
+}
+
+fn render_job_table<'a>(app: &mut App, block: &Block<'a>) -> (Table<'a>, usize) {
+    let header = app.output_rows.first().map(|line| {
+        let mut cells: Vec<Cell> = Vec::new();
+        if app.config.show_line_numbers {
+            cells.push(Cell::from("   "));
+        }
+        cells.push(
+            Cell::from(line.clone())
+                .style(Style::default().add_modifier(ratatui::style::Modifier::BOLD)),
+        );
+        Row::new(cells).style(Style::default().bg(ratatui::style::Color::DarkGray))
+    });
+
+    let data_rows = app.output_rows.iter().skip(1).cloned().collect::<Vec<_>>();
+    let (mut table, count) = render_lines(&data_rows, block.clone(), app);
+
+    if let Some(h) = header {
+        table = table.header(h);
+    }
+
+    (table, count)
 }
 
 fn fetch_jobs(app: &mut App) {
@@ -168,11 +171,8 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
     loop {
         match app.view {
             View::JobList => {
-                let (table, num_rows) = render_job_table(
-                    &app.output_rows,
-                    &Block::default().borders(Borders::ALL),
-                    &app.config,
-                );
+                let (table, num_rows) =
+                    render_job_table(&mut app, &Block::default().borders(Borders::ALL));
                 app.num_rows = num_rows;
                 terminal.draw(|f| {
                     let size = f.area();
@@ -181,11 +181,8 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
             }
 
             View::JobDetails => {
-                let (table, num_rows) = render_job_table(
-                    &app.output_rows,
-                    &Block::default().borders(Borders::ALL),
-                    &app.config,
-                );
+                let (table, num_rows) =
+                    render_job_table(&mut app, &Block::default().borders(Borders::ALL));
                 app.num_rows = num_rows;
                 terminal.draw(|f| {
                     let size = f.area();
