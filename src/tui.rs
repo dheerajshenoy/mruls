@@ -244,14 +244,15 @@ fn cancel_job(job_id: &str) -> Result<(), String> {
 }
 
 fn run_command(cmd: &str) -> Result<Vec<String>, String> {
-    let mut parts = cmd.split_whitespace();
-    let program = parts.next().ok_or_else(|| "Empty command".to_string())?;
-    println!("Running command: {}", cmd);
+    if cmd.is_empty() {
+        return Err("Empty command".to_string());
+    }
 
-    let output = Command::new(program)
-        .args(parts)
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
         .output()
-        .map_err(|e| format!("Failed to run '{}': {}", program, e))?;
+        .map_err(|e| format!("Failed to run '{}': {}", cmd, e))?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout)

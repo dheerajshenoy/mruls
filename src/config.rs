@@ -21,7 +21,7 @@ impl Default for Config {
             relative_line_numbers: true,
             max_lines: Some(-1),
             username: String::new(),
-            slurm_command: "squeue -o %i %u %j %t %M %D %R".to_string(),
+            slurm_command: "squeue -o '%i %u %j %t %M %D %R'".to_string(),
         }
     }
 }
@@ -80,7 +80,7 @@ impl Config {
             .get("slurm")
             .and_then(|g| g.get("command"))
             .and_then(|v| v.as_str())
-            .unwrap_or("squeue -o %i %u %t %M %D %R")
+            .unwrap_or("squeue -o '%i %u %t %M %D %R'")
             .to_string();
 
         Self {
@@ -94,3 +94,4 @@ impl Config {
         }
     }
 }
+
