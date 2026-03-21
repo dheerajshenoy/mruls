@@ -1,14 +1,8 @@
 [slurm]
 username = "$(whoami)"
-# squeue_cmd = ""
 
-[job_list]
+[general]
 refresh_interval = 5 # -1 to disable auto-refresh
-
-[job_details]
-refresh_interval = 5 # -1 to disable auto-refresh
-
-[job_output]
-refresh_interval = 5 # -1 to disable auto-refresh
-lines = 100 # -1 to show all lines
-line_number = true
+max_lines = 100 # -1 to show all lines
+show_line_numbers = true
+relative_line_numbers = true
